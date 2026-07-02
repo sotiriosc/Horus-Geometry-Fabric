@@ -434,14 +434,104 @@ The architecture achieves clean separation: the arithmetic core is stateless and
 
 ---
 
-## 13. Related Documents
+---
+
+## 13. HBS-13 Findings: Boundary Gap Characterization
+
+*Added: 2026-07-02. Source: `sim/HBS13_BOUNDARY_GAP.csv`, `sim/HBS13_SUMMARY.log`.*
+
+HBS-13 characterized the exact information physics of the two arithmetic phase boundaries.
+
+### 13.1 Boundary Geometry: Both Boundaries Are Cliffs
+
+Both the collapse boundary (E=15↔16) and the saturation boundary (E=47↔48) are **CLIFF geometry** transitions:
+
+- **Fraction-independent:** Every f value (0..63) transitions simultaneously. The cliff is perfectly vertical in E-space.
+- **Single-E-step:** No gradual degradation, no quantized stepping, no hysteresis.
+- **Stateless:** The transition is a pure function of current operand E values. No operation history affects it.
+
+This confirms that both boundaries are **algebraic discontinuities** in the exponent arithmetic, not noise-induced or stochastic degradation.
+
+### 13.2 Information Behavior: Exponent-Channel Only
+
+Scale-down and scale-up chains using `MUL(x, HALF)` and `MUL(x, TWO)` move information **exclusively through the exponent channel**. The fraction field is inert throughout:
+
+- `MUL(x, HALF)` or `MUL(x, TWO)` with f_b=0 preserves f_a exactly at every step.
+- Fraction is disturbed only at boundary events: floor forces f=0, OVF forces f=63.
+- Entropy loss is a discrete event at boundary crossing, not a gradual degradation.
+
+**This is the key architectural property:** within the stable zone and even while transiting the collapse/saturation zones via non-self operations, information is **perfectly conserved**.
+
+### 13.3 Recoverability
+
+Near-boundary round-trips (no floor/OVF crossing) are **perfectly reversible** — both E and f recover identically. This was confirmed across anchors E=24, 32, 40 with f=31, using 20-step round-trips that reached E values as low as 4 (deep in the collapse zone).
+
+Through-floor round-trips exhibit two deterministic losses:
+1. **Fraction erasure (f=0):** Permanent and universal.
+2. **E overshoot (+2):** Arises because the floor is an absorbing state for descent but not for ascent.
+
+The +2 E offset is **predictable** and could be compensated by a compiler that tracks floor events.
+
+### 13.4 ADD as a Boundary-Transport Mechanism
+
+ADD with Thoth Rollover is not just a fraction-summing operation — it is a **phase-boundary transport mechanism**:
+
+- For any operand near E=15: 50% of ADD operations (those with f ≥ 32) will cross into the stable zone.
+- For any operand near E=47: 50% of ADD operations will cross into the saturation zone.
+
+**This is the dominant uncontrolled boundary-crossing risk in real compute graphs.** MUL(x,x) at E=15 always underflows — this is predictable. But ADD with high-fraction operands near the boundary is context-dependent on f, which may not be statically predictable.
+
+A future compiler or scheduler must treat ADD as a boundary-sensitive operation for operands with `stored_E ∈ {15, 47}` and f ≥ 32.
+
+### 13.5 The True Self-Multiplication Safe Floor
+
+HBS-13E revealed a subtle but important refinement of the HBS-12 stable zone definition:
+
+- HBS-12 defined stable zone as E=16..47 (no UF/OVF flag from MUL(x,x)).
+- HBS-13 showed that MUL(x,x) at E=16..23 produces **results in the collapse zone** (E_result < 16) with no UF flag.
+- The self-multiplication result stays **in the stable zone** only when E_input ≥ 24.
+
+This refines the operational guidance:
+
+```
+Arithmetic Zone  │  stored_E   │  MUL(x,x) safe?  │  Result stays stable?
+─────────────────┼─────────────┼──────────────────┼──────────────────────
+Collapse zone    │  0..15      │  No (UF)          │  No
+Unsafe stable    │  16..23     │  Yes (no UF)      │  No (E_result < 16)
+Safe stable      │  24..39     │  Yes              │  Yes (E_result 16+)
+Upper stable     │  40..47     │  Yes              │  Yes (E_result <48)
+Saturation zone  │  48..63     │  No (OVF)         │  No
+```
+
+The **operationally safe exponent window for self-multiplication** is E = 24..39, not 16..47. Compilers targeting repeated MUL chains should enforce this tighter range.
+
+### 13.6 Deterministic Boundary Physics
+
+Every boundary phenomenon discovered in HBS-13 is **deterministic and algebraically derivable** from the encoding:
+
+| Phenomenon | Formula | Value |
+|------------|---------|-------|
+| Steps to floor from E_seed | E_seed + 1 | Varies |
+| Steps to OVF from E_seed | 64 − E_seed | Varies |
+| E recovery offset after floor | +2 (absorbing state artifacts) | Fixed |
+| ADD boundary-crossing threshold | f ≥ 32 | Fixed |
+| True MUL(x,x) safe floor | E ≥ 24 | Fixed |
+| Natural exponent anchor | E=32 (equidistant to both boundaries) | Fixed |
+
+None of these require measurement to predict — they are provable from the arithmetic. HBS-13 confirms the hardware implements the theory exactly.
+
+---
+
+## 14. Related Documents
 
 | Document | Content |
 |----------|---------|
 | [EXECUTION_POLICY.md](EXECUTION_POLICY.md) | Regime-Aware Execution; policy modes; HBS-11 results; Policy Applicability Boundary |
-| [HORUS_ARITHMETIC_ENVELOPE.md](HORUS_ARITHMETIC_ENVELOPE.md) | Complete arithmetic envelope; compiler/QAT constraints; phase diagram |
-| [HBS12_RESULTS.md](HBS12_RESULTS.md) | Full HBS-12 benchmark report; all 6 sub-test results |
-| [HBS11_RESULTS.md](HBS11_RESULTS.md) | Full HBS-11 benchmark report; raw metrics; deployment profiles |
+| [HORUS_ARITHMETIC_ENVELOPE.md](HORUS_ARITHMETIC_ENVELOPE.md) | Complete arithmetic envelope; compiler/QAT constraints; phase diagram; HBS-13 geometry |
+| [HORUS_BOUNDARY_GAP_ANALYSIS.md](HORUS_BOUNDARY_GAP_ANALYSIS.md) | Boundary gap principal reference; recovery characteristics; v4 directions |
+| [HBS13_RESULTS.md](HBS13_RESULTS.md) | Full HBS-13 benchmark report |
+| [HBS12_RESULTS.md](HBS12_RESULTS.md) | Full HBS-12 benchmark report |
+| [HBS11_RESULTS.md](HBS11_RESULTS.md) | Full HBS-11 benchmark report |
 | [COMPOSITION_GEOMETRY.md](COMPOSITION_GEOMETRY.md) | Deterministic residual manifold; Tests 9–10; bias-table guide |
 | [NUMERICS.md](NUMERICS.md) | Bit layout, encode/decode, canonical constants |
 | [DESIGN_LIMITATIONS.md](DESIGN_LIMITATIONS.md) | Architectural trade-offs and v4 targets |
@@ -453,3 +543,4 @@ The architecture achieves clean separation: the arithmetic core is stateless and
 *Horus (Native Fractional Engine project) · Architecture Philosophy v3 ·
 Digital Physics · Quantized Event Accumulation Engine · Lossy Stable Substrate*
 *HBS-11 Validated: 2026-07-02 · HBS-12 Arithmetic Envelope added: 2026-07-02*
+*HBS-13 Boundary Gap added: 2026-07-02*

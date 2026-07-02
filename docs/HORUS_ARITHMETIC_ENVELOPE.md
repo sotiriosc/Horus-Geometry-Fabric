@@ -323,13 +323,88 @@ See `docs/EXECUTION_POLICY.md` § "Policy Applicability Boundary" for the formal
 
 ---
 
-## 11. Related Documents
+---
+
+## 12. Boundary Geometry (HBS-13)
+
+Both phase boundaries are **CLIFF geometry** — the transition is instantaneous, occurs in a single exponent step, and is completely independent of the fraction field.
+
+```
+Collapse Boundary:          Saturation Boundary:
+
+MUL(x,x) UF rate            MUL(x,x) OVF rate
+100% │█████                  100% │        █████
+     │     ← cliff                │  cliff →
+  0% │     ░░░░░               0% │░░░░
+     ╰──────────── E           ╰──────────── E
+        15   16                    47   48
+```
+
+**No fraction dependence.** Every f value in 0..63 transitions simultaneously. There is no gradual degradation, no quantized stepping, no hysteresis.
+
+**ADD-induced boundary crossing (50% rule):** For ADD(x, x), Thoth Rollover fires for all f ≥ 32, incrementing E by 1. This means:
+- E=15 with f ≥ 32 → ADD produces E=16 (rescued into stable zone)
+- E=47 with f ≥ 32 → ADD produces E=48 (pushed into OVF zone)
+
+The 50% crossing rate applies universally, regardless of anchor E value.
+
+---
+
+## 13. Recovery Characteristics (HBS-13)
+
+### Near-boundary round-trip: Perfectly reversible
+
+Descent into the collapse zone with `MUL(x, HALF)` followed by equal-count ascent with `MUL(x, TWO)` recovers both E and f identically, even when the round-trip passes through E values as low as 4. The fraction is preserved analytically at every step (f_b=0 multipliers preserve f_a).
+
+| Anchor | Steps each way | Bottom E | Recovery E | Recovery f | Verdict |
+|--------|---------------|----------|------------|------------|---------|
+| E=24 | 20 | 4 | 24 | 31 (original) | Perfect |
+| E=32 | 20 | 12 | 32 | 31 (original) | Perfect |
+| E=40 | 20 | 20 | 40 | 31 (original) | Perfect |
+
+### Through-floor round-trip: Partially reversible
+
+Once the floor attractor is reached (UF fires), the fraction is permanently destroyed (set to 0). E recovery has a deterministic +2 offset because the floor absorbs 2 descent steps.
+
+| Anchor | Steps each way | Bottom | Recovery E | Recovery f | Verdict |
+|--------|---------------|--------|------------|------------|---------|
+| E=24 | 26 | floor | 26 (+2) | 0 (was 31) | E partial, f lost |
+| E=32 | 34 | floor | 34 (+2) | 0 (was 31) | E partial, f lost |
+| E=40 | 42 | floor | 42 (+2) | 0 (was 31) | E partial, f lost |
+
+The +2 E offset and f=0 outcome are **deterministic** — they are the same regardless of anchor or original fraction.
+
+---
+
+## 14. Information Migration (HBS-13)
+
+Information migration through scale-down/scale-up chains is **purely exponent-channel**. The fraction field is invariant during all scale-down and scale-up operations (f_b=0 preserves f_a at every step). The fraction is only disturbed at two events:
+
+1. **Floor arrival:** f forced to 0. Occurs at step E_seed + 1 for scale-down from E_seed.
+2. **OVF arrival:** f forced to 63. Occurs at step 64 − E_seed for scale-up from E_seed.
+
+```
+Distance from E_seed to boundaries:
+  E=24 → floor:  25 steps (24+1)       E=24 → OVF: 40 steps (64-24)
+  E=32 → floor:  33 steps (32+1)       E=32 → OVF: 32 steps (64-32)
+  E=40 → floor:  41 steps (40+1)       E=40 → OVF: 24 steps (64-40)
+```
+
+The stable center of the exponent space (E=24..40) is equidistant from both boundaries only at E=32. At E=32, exactly 32 scale-up or scale-down steps reach the respective boundary. This makes E=32 (actual_E = 0, i.e., value ≈ 1.0) the **natural anchor** of the arithmetic system.
+
+---
+
+## 15. Related Documents
 
 | Document | Relationship |
 |----------|-------------|
 | `docs/HBS12_RESULTS.md` | Full HBS-12 test report (this document's source) |
+| `docs/HBS13_RESULTS.md` | Full HBS-13 boundary gap test report |
+| `docs/HORUS_BOUNDARY_GAP_ANALYSIS.md` | Boundary gap principal reference |
 | `docs/EXECUTION_POLICY.md` | Policy system; HBS-11 results; policy-arithmetic boundary |
 | `docs/COMPOSITION_GEOMETRY.md` | Composition geometry; shallow vs deep chain analysis |
-| `docs/ARCHITECTURE_PHILOSOPHY.md` | Full architectural context; HBS-12 findings summary |
-| `sim/HBS12_ARITHMETIC_BOUNDARY.csv` | Raw measurement data (1255 rows) |
-| `sim/HBS12_SUMMARY.log` | Full sub-test analysis log |
+| `docs/ARCHITECTURE_PHILOSOPHY.md` | Full architectural context; HBS-12 and HBS-13 findings |
+| `sim/HBS12_ARITHMETIC_BOUNDARY.csv` | Raw HBS-12 measurement data |
+| `sim/HBS13_BOUNDARY_GAP.csv` | Raw HBS-13 measurement data (6,092 rows) |
+| `sim/HBS12_SUMMARY.log` | HBS-12 analysis log |
+| `sim/HBS13_SUMMARY.log` | HBS-13 analysis log |
