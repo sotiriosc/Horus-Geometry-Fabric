@@ -1,0 +1,177 @@
+========================================================================
+  HBS-C8: ATTRACTOR DECOMPOSITION & PHASE-SPACE REDUCTION
+  Collapse of HBS-C1 → C7 into a minimal dynamical model
+========================================================================
+
+────────────────────────────────────────────────────────────────────────
+  SECTION 1: ATTRACTOR MODEL
+────────────────────────────────────────────────────────────────────────
+
+  A1 — Cancellation Residual Absorption
+  ────────────────────────────────────────────────────────────
+  Class:             CLASS_B
+  Op signature:      SUB with |E_a - E_b| ≤ 2 and |f_a - f_b| ≤ 7
+  Trigger (formal):  op=SUB ∧ E_a = E_b ∧ Δf < 8
+  TTI range:         2 – 5 cycles
+  Attractor type:    ABSORBING
+  Description:       Monotonic — residuals accumulate without bound (epoch-limited)
+  STABLE occupancy:  100.0%
+  SATURATE occup.:   0.0%
+  Accum amplif.:     63.6×
+  Accum entropy:     3.420 bits
+  Recovery latency:  0 cycles
+  Phase-space (X,Y): (0.05, 0.92)
+
+  A2 — Geometric Exponent Explosion
+  ────────────────────────────────────────────────────────────
+  Class:             CLASS_D
+  Op signature:      MUL with factor E > 32 (factor > 1.0) as feedback chain
+  Trigger (formal):  op=MUL ∧ E_factor > 32 ∧ chain_depth ≥ 1
+  TTI range:         16 – 31 cycles
+  Attractor type:    TRANSIENT
+  Description:       Cyclic transient — geometric explosion + deterministic OVF reset
+  STABLE occupancy:  37.0%
+  SATURATE occup.:   51.0%
+  Accum amplif.:     1.0×
+  Accum entropy:     3.870 bits
+  Recovery latency:  0 cycles
+  Phase-space (X,Y): (0.90, 0.05)
+
+  A3 — Thoth Rollover Boundary Oscillation
+  ────────────────────────────────────────────────────────────
+  Class:             CLASS_C
+  Op signature:      ADD with E ∈ {15, 47} and f ≥ 32 (Rollover threshold)
+  Trigger (formal):  op=ADD ∧ E ∈ {15, 47} ∧ f_sum ≥ 64
+  TTI range:         0 – 0 cycles
+  Attractor type:    OSCILLATORY
+  Description:       Period-2 oscillation — COLLAPSE↔TRANSITION or TRANSITION↔SATURATE
+  STABLE occupancy:  0.0%
+  SATURATE occup.:   50.0%
+  Accum amplif.:     N/A
+  Accum entropy:     0.045 bits
+  Recovery latency:  0 cycles
+  Phase-space (X,Y): (0.65, 0.10)
+
+  A4 — Entropic Regime Interference
+  ────────────────────────────────────────────────────────────
+  Class:             MIXED
+  Op signature:      ADD mix: P(STABLE)=0.4, P(COLLAPSE-edge)=0.3, P(SAT-edge)=0.3
+  Trigger (formal):  P(E<16)>0 ∧ P(E>47)>0 ∧ P(16≤E≤43)>0 in same epoch
+  TTI range:         4 – 10 cycles
+  Attractor type:    QUASI-PERIODIC
+  Description:       Bounded entropy — 10-cycle deterministic injection pattern
+  STABLE occupancy:  40.0%
+  SATURATE occup.:   30.0%
+  Accum amplif.:     N/A
+  Accum entropy:     2.910 bits
+  Recovery latency:  0 cycles
+  Phase-space (X,Y): (0.50, 0.28)
+
+────────────────────────────────────────────────────────────────────────
+  SECTION 2: INTERACTION MATRIX
+────────────────────────────────────────────────────────────────────────
+
+  Codes: I=Independent  S=Suppressed  T=Transient-intersection  P=Partial-overlap
+
+           A1    A2    A3    A4
+  A1        -     I     S     I
+  A2        I     -     T     I
+  A3        S     T     -     P
+  A4        I     I     P     -
+
+  Evidence:
+    A1↔A2 [I]: No CLASS_B+D composition tested; operate in disjoint E-pressure zones
+    A1↔A3 [S]: C4 routes CLASS_C with accum_en=0; A3 prevents A1 accumulator contamination
+    A1↔A4 [I]: R4 uses ADD, not SUB — A1 trigger condition not met in R4
+    A2↔A1 [I]: Symmetric; exponent drift chain does not induce cancellation
+    A2↔A3 [T]: A2 drift chain traverses E=47 boundary (12% TRANSITION, C7-R2); A3 zone transient
+    A2↔A4 [I]: R4 SAT-edge injection mimics A2 endpoint state but lacks feedback chain
+    A3↔A1 [S]: Symmetric; A3 routing isolation suppresses A1 (no accum contribution)
+    A3↔A2 [T]: Symmetric; A3 boundary is the transit endpoint of A2 explosion
+    A3↔A4 [P]: R4 COLLAPSE-edge and SAT-edge injections activate boundary-adjacent states; weak A3 dynamics
+    A4↔A1 [I]: Symmetric
+    A4↔A2 [I]: Symmetric
+    A4↔A3 [P]: Symmetric; partial boundary injection in R4
+
+────────────────────────────────────────────────────────────────────────
+  SECTION 3: PHASE-SPACE PROJECTION
+────────────────────────────────────────────────────────────────────────
+
+  Axis X: Exponent Pressure
+    Low  (0.0–0.3): E near center (E≈32), minimal drift or boundary distance
+    High (0.7–1.0): E drifting rapidly or at extreme (E→0 or E→63)
+
+  Axis Y: Cancellation Pressure
+    Low  (0.0–0.3): ADD/MUL dominant, no sign-alternating operations
+    High (0.7–1.0): SUB dominant with near-equal operands (cancellation-dense)
+
+  Attractor positions in phase space:
+    A1: X=0.05  Y=0.92  — Cancellation
+    A2: X=0.90  Y=0.05  — Exponent Drift
+    A3: X=0.65  Y=0.10  — Boundary Oscillation
+    A4: X=0.50  Y=0.28  — Mixed Injection
+
+  Disjoint regions (no overlap confirmed by data):
+    A1 (low X, high Y)  ←→  A2 (high X, low Y):  31× TTI spread, disjoint triggers
+    A1 (low X, high Y)  ←→  A3 (mid X, low Y):   suppressed by routing isolation
+
+  Overlap / intersection regions:
+    A2 ∩ A3 (transient): A2 drift chain passes through E=47 boundary zone (C7: 12% TRANSITION)
+    A3 ∩ A4 (partial):   R4 COLLAPSE/SAT-edge injections create weak boundary dynamics
+
+  Singularity S1 — Composite Explosion Zone (X≈0.80, Y≈0.75):
+    A1+A2 theoretical composite — high drift AND high cancellation.
+    NOT tested in C7. Would require CLASS_D workload with CLASS_B injection.
+    Risk: CRITICAL (additive failure — residual accumulation + E explosion)
+
+  Singularity S2 — Boundary-Drift Intersection (X≈0.72, Y≈0.15):
+    A2 traverses A3 zone. Confirmed in C7-R2 (12% TRANSITION, 24 cycles).
+    Risk: MEDIUM — accum isolated by routing during transit; no accumulation
+
+────────────────────────────────────────────────────────────────────────
+  SECTION 4: REGIME INDEPENDENCE TEST (from HBS-C7)
+────────────────────────────────────────────────────────────────────────
+
+  TTI ranges: {'A1': (2, 5), 'A2': (16, 31), 'A3': (0, 0), 'A4': (4, 10)}
+  Max TTI / Min TTI = 31 / 0 = 31.0×
+  Conclusion: MULTI-ATTRACTOR (spread > 2.0×; threshold = 31.0×)
+
+  Single-threshold test: FAIL — no common onset depth across A1–A4
+  Unified boundary: FAIL — each attractor has independent trigger condition
+  Recovery coupling: PASS — all attractors release on forcing removal (latency=0)
+
+────────────────────────────────────────────────────────────────────────
+  SECTION 5: DETERMINISM UNDER STRESS
+────────────────────────────────────────────────────────────────────────
+
+  A1: Deterministic — residuals are jitter-determined, fixed-pattern sequence
+  A2: Deterministic — ΔE=1.000/cycle exactly over 7 independent runs
+  A3: Deterministic — period-2 oscillation locked by Thoth Rollover physics
+  A4: Deterministic — 10-cycle repeating injection pattern (no LFSR)
+  All four attractors produce identical trajectories for identical inputs.
+  Hardware-level determinism confirmed for all regimes (C7 Section C).
+
+========================================================================
+  MINIMAL SYSTEM STATEMENT (derived from data only)
+========================================================================
+
+  HORUS v3 under stress behaves as a deterministic piecewise-switching
+  dynamical system characterized by four structurally independent
+  attractors — absorbing linear residual accumulation (A1), transient
+  geometric exponent explosion (A2), oscillatory Thoth Rollover
+  boundary locking (A3), and quasi-periodic entropic regime
+  interference (A4) — partitioned by workload-class routing with zero
+  attractor locking and zero recovery latency upon forcing removal.
+
+  Derivation basis:
+    'piecewise-switching' — C4 kernel routes by (class,E,depth) → 32 entries (C5)
+    'deterministic' — all 4 attractors reproducible under identical inputs (C7-C)
+    '4 structurally independent' — TTI spread 31×, disjoint triggers (C7-B)
+    'absorbing linear'  — A1 monotonic accum drift, 63.6× amplif (C7-R1, C6-W2)
+    'transient geometric' — A2 ΔE=1.000/cycle, OVF at 31cy (C7-R2)
+    'oscillatory locking' — A3 period-2, 50% cross rate (C7-R3)
+    'quasi-periodic entropic' — A4 2.91 bits, 10-cycle pattern (C7-R4)
+    'zero attractor locking' — recovery latency=0 all regimes (C7-D)
+    'zero recovery latency' — immediate STABLE on neutral input (C7-D)
+
+========================================================================

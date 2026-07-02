@@ -30,7 +30,7 @@ SRC_SYSTOLIC := $(RTL)/horus_systolic_array.v $(RTL)/horus_controller.v \
                 $(RTL)/horus_input_buffer.v $(RTL)/horus_top.v
 
 # =============================================================================
-.PHONY: all hbs11 hbs12 hbs13 hbs14 hbs_c2 hbs_c5 hbs_c6 hbs_c7
+.PHONY: all hbs11 hbs12 hbs13 hbs14 hbs_c2 hbs_c5 hbs_c6 hbs_c7 hbs_c8
 all: sim_mesh
 	@echo ""
 	@echo "Running Horus Mesh Testbench (7/7 tests expected)..."
@@ -247,6 +247,7 @@ clean:
 	rm -f HBS_C7_FAILURE_DOMAIN.csv HBS_C7_SUMMARY.log sim_hbs_c7 \
 	      hbs_c7_failure_heatmap.png hbs_c7_r2_exponent_drift.png \
 	      hbs_c7_r1_residual_growth.png hbs_c7_recovery_comparison.png
+	rm -f HBS_C8_ATTRACTOR_MODEL.csv HBS_C8_SUMMARY.log HBS_C8_PHASE_SPACE.png
 	@echo "Cleaned generated binaries and artifacts."
 
 .PHONY: help
@@ -272,6 +273,7 @@ help:
 	@echo "  make hbs_c5           HBS-C5 C4 kernel decision surface stress-test"
 	@echo "  make hbs_c6           HBS-C6 adversarial real-world workload stress-test"
 	@echo "  make hbs_c7           HBS-C7 failure-domain isolation suite"
+	@echo "  make hbs_c8           HBS-C8 attractor decomposition and phase-space reduction"
 
 # HBS-14 end-to-end system consistency: horus_system + horus_systolic_array
 sim_hbs14: $(TB)/tb_hbs14_system_integration.v $(SRC_CORE) $(RTL)/horus_systolic_array.v
@@ -355,4 +357,16 @@ hbs_c7: sim_hbs_c7
 	@echo "         docs/HBS_C7_RESULTS.md  docs/HORUS_FAILURE_DOMAIN_MAP.md"
 	@echo "         hbs_c7_failure_heatmap.png  hbs_c7_r2_exponent_drift.png"
 	@echo "         hbs_c7_r1_residual_growth.png  hbs_c7_recovery_comparison.png"
+	@echo ""
+
+# ── HBS-C8: Attractor Decomposition & Phase-Space Reduction ──────────────────
+# Pure analysis — no simulation required. Reads from prior HBS data.
+hbs_c8:
+	@echo ""
+	@echo "Running HBS-C8 Attractor Decomposition & Phase-Space Reduction..."
+	$(PYTHON) analyze_hbs_c8_attractor_model.py
+	@echo ""
+	@echo "Outputs: HBS_C8_ATTRACTOR_MODEL.csv  HBS_C8_SUMMARY.log"
+	@echo "         HBS_C8_PHASE_SPACE.png"
+	@echo "         docs/HBS_C8_ATTRACTOR_MODEL.md  docs/HORUS_PHASE_SPACE_REDUCTION.md"
 	@echo ""
