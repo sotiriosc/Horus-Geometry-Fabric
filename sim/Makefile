@@ -30,7 +30,7 @@ SRC_SYSTOLIC := $(RTL)/horus_systolic_array.v $(RTL)/horus_controller.v \
                 $(RTL)/horus_input_buffer.v $(RTL)/horus_top.v
 
 # =============================================================================
-.PHONY: all hbs11 hbs12 hbs13 hbs14
+.PHONY: all hbs11 hbs12 hbs13 hbs14 hbs_c2
 all: sim_mesh
 	@echo ""
 	@echo "Running Horus Mesh Testbench (7/7 tests expected)..."
@@ -234,6 +234,9 @@ clean:
 	rm -f HBS12_ARITHMETIC_BOUNDARY.csv HBS12_SUMMARY.log sim_hbs12
 	rm -f HBS13_BOUNDARY_GAP.csv HBS13_SUMMARY.log sim_hbs13
 	rm -f HBS14_SYSTEM_INTEGRATION.csv HBS14_SUMMARY.log sim_hbs14
+	rm -f HBS_C2_LIVE_SIM.csv HBS_C2_LIVE_SUMMARY.log sim_hbs_c2 \
+	      hbs_c2_state_space_ascii.txt hbs_c2_e_density.png \
+	      hbs_c2_uf_ovf_timeline.png hbs_c2_accum_drift.png hbs_c2_mode_region_hm.png
 	@echo "Cleaned generated binaries and artifacts."
 
 .PHONY: help
@@ -255,6 +258,7 @@ help:
 	@echo "  make hbs12            HBS-12 arithmetic boundary mapping suite"
 	@echo "  make hbs13            HBS-13 boundary gap characterization suite"
 	@echo "  make hbs14            HBS-14 end-to-end system consistency suite"
+	@echo "  make hbs_c2           HBS-C2 live system observation harness"
 
 # HBS-14 end-to-end system consistency: horus_system + horus_systolic_array
 sim_hbs14: $(TB)/tb_hbs14_system_integration.v $(SRC_CORE) $(RTL)/horus_systolic_array.v
@@ -268,4 +272,20 @@ hbs14: sim_hbs14
 	$(PYTHON) analyze_hbs14.py
 	@echo ""
 	@echo "Output: HBS14_SYSTEM_INTEGRATION.csv + HBS14_SUMMARY.log"
+	@echo ""
+
+# ── HBS-C2: Live System Observation Harness ──────────────────────────────────
+sim_hbs_c2: $(TB)/tb_hbs_c2_live_sim.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+hbs_c2: sim_hbs_c2
+	@echo ""
+	@echo "Running HBS-C2 Live System Observation Harness..."
+	$(VVP) sim_hbs_c2
+	@echo ""
+	$(PYTHON) analyze_hbs_c2_live.py
+	@echo ""
+	@echo "Outputs: HBS_C2_LIVE_SIM.csv  HBS_C2_LIVE_SUMMARY.log"
+	@echo "         hbs_c2_e_density.png  hbs_c2_uf_ovf_timeline.png"
+	@echo "         hbs_c2_accum_drift.png  hbs_c2_mode_region_hm.png"
 	@echo ""
