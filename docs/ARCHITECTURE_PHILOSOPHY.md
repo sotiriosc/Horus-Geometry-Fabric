@@ -544,9 +544,85 @@ None of these require measurement to predict — they are provable from the arit
 | [HORUS_SYSTEM_UTILIZATION_BLUEPRINT.md](HORUS_SYSTEM_UTILIZATION_BLUEPRINT.md) | Runtime strategy; mode selection guide; deployment configurations |
 | [HORUS_C1_COMPILER_SPEC.md](HORUS_C1_COMPILER_SPEC.md) | Compiler specification; region classification; ABMP protocol |
 | [HORUS_SYSTEM_COMPILATION_MODEL.md](HORUS_SYSTEM_COMPILATION_MODEL.md) | Compilation model; layer separation diagrams; full pipeline |
-| [HORUS_C3_WORKLOAD_EMBEDDING.md](HORUS_C3_WORKLOAD_EMBEDDING.md) | Workload embedding; phase scheduler; Phase Transport protocol |
-| [HORUS_PHASE_SCHEDULER_MODEL.md](HORUS_PHASE_SCHEDULER_MODEL.md) | Visual phase scheduler model; class flow diagrams |
+| [HORUS_C3_WORKLOAD_EMBEDDING.md](HORUS_C3_WORKLOAD_EMBEDDING.md) | Workload embedding; phase scheduler; Phase Transport protocol [SUPERSEDED] |
+| [HORUS_PHASE_SCHEDULER_MODEL.md](HORUS_PHASE_SCHEDULER_MODEL.md) | Visual phase scheduler model; class flow diagrams [SUPERSEDED] |
 | [HORUS_C2_LIVE_SYSTEM_REPORT.md](HORUS_C2_LIVE_SYSTEM_REPORT.md) | Live system measurement; measured occupancy baseline |
+| [HORUS_C4_COMPILER_KERNEL_SPEC.md](HORUS_C4_COMPILER_KERNEL_SPEC.md) | Unified compiler kernel; 32-entry truth table; current authority |
+
+---
+
+## C4 — Compiler Kernel Compression Principle
+
+**Source:** HORUS C4 Compiler Kernel Specification · 2026-07-02  
+**Authority:** Compression of C1 + C3 into a single deterministic function
+
+### Principle Statement
+
+> **The compiler is not a system of rules. It is a single decision function over phase-space regions.**
+
+C1 defined instruction-level routing as a multi-stage pipeline. C3 defined workload-level scheduling as a multi-stage embedding framework. Both were correct. C4 proves they were always the same thing: a finite mapping over three inputs.
+
+### The Compression
+
+```
+(workload_class, estimated_E, depth) → (mode_tag, action)
+```
+
+This is the complete compiler. Three inputs, two outputs, 32 enumerable cases. All C1 routing rules, all C3 scheduling rules, all ABMP logic, all workload profiles — they resolve to entries in a truth table.
+
+The multi-stage compiler architectures described in C1 and C3 are conceptually deprecated. Their **content** (action semantics, workload classification criteria, physics explanations) remains valid as implementation reference material. Their **structure** (pipeline stages, layered frameworks, embedding analyzers) is superseded by the kernel.
+
+### What Changed
+
+| C1 + C3 (Multi-Stage) | C4 (Kernel) |
+|---|---|
+| Workload classifier → Phase embedding → Scheduling policy → Instruction emitter | `HORUS_KERNEL(class, E, depth)` |
+| Multi-stage pipeline with context passing | Single stateless function call |
+| Implicit decision authority at each stage | Explicit truth table: 32 entries, fully enumerable |
+| ABMP as a multi-phase protocol narrative | `NORMALIZE_THEN_ROUTE` action token |
+| Phase Transport as a described mechanism | `NORMALIZE_THEN_ROUTE` at COLLAPSE for B/D |
+| Rules S1–S4 + C1 mode table + depth rules | Single function body, single mode output |
+
+The routing logic has not changed. The representation of that logic has been compressed.
+
+### Compiler as Stateless Kernel
+
+The execution contract from C4 §1.7:
+
+```
+HORUS C4 compiler is a stateless deterministic routing function
+mapping (workload_class, estimated_E, depth) into (mode_tag, action).
+No historical state is used. No runtime adaptation occurs.
+The same inputs always produce the same outputs.
+The function is total and finite: 32 output cases.
+```
+
+A compiler that maintains state between decisions — that remembers previous regions, adjusts workload class based on flag observations, or adapts mode based on accumulator drift — is not a C4 compiler. C4 is stateless by definition.
+
+### Deprecated Constructs
+
+The following are **conceptually deprecated** as decision-making frameworks. They remain in their respective documents as implementation reference material.
+
+| Construct | Status | Replacement |
+|---|---|---|
+| C1 multi-stage instruction pipeline | SUPERSEDED | `HORUS_KERNEL()` truth table |
+| C3 phase embedding analyzer | SUPERSEDED | `workload_class` static annotation |
+| C3 scheduling policy generator | SUPERSEDED | `HORUS_KERNEL()` output |
+| ABMP multi-phase protocol narrative | SUPERSEDED | `INSERT_EPOCH_BOUNDARY` action token |
+| Phase Transport as a described mechanism | SUPERSEDED | `NORMALIZE_THEN_ROUTE` at COLLAPSE |
+| Rules S1–S4 as a named ruleset | SUPERSEDED | Rows in the truth table |
+
+**Deprecation is documentation-only.** No documents are deleted. The superseded documents contain essential action implementation details (what `NORMALIZE_THEN_ROUTE` means in hardware terms, how to compute tile_depth, what Phase Transport's hardware physics are) that the C4 kernel references but does not repeat.
+
+### The Kernel Stack
+
+```
+Hardware (RTL)       →  immutable physics  ←  source of truth
+C4 Kernel            →  stateless decision function  ←  authority
+C1/C3/ABMP docs      →  action implementation guides  ←  reference
+```
+
+The architecture is now three layers: physics, decision, and implementation guides. Nothing above the physics layer changes the physics. Nothing above the kernel layer changes the routing decision.
 
 ---
 
@@ -845,3 +921,4 @@ Digital Physics · Quantized Event Accumulation Engine · Lossy Stable Substrate
 *Structural Decoupling Proof added: 2026-07-02 · HORUS_V3_FINAL_SPEC issued: 2026-07-02*
 *Compiler Separation Principle (HBS-C1) added: 2026-07-02*
 *C3 Workload Embedding Principle added: 2026-07-02*
+*C4 Compiler Kernel Compression Principle added: 2026-07-02*

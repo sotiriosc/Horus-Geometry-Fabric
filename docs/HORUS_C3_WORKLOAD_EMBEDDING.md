@@ -3,7 +3,16 @@
 **Document type:** Compiler Mapping + Scheduling Layer Definition  
 **Authority:** HBS-11 through HBS-C2 validated hardware behavior (frozen) · C1 Compiler Spec (frozen)  
 **Version:** 1.0 · 2026-07-02  
-**Status:** GOLD — No RTL changes. No new simulation. Mapping and scheduling only.
+**Status:** SUPERSEDED (decision logic) — retained as action implementation reference
+
+> **DEPRECATION NOTICE (C4 · 2026-07-02)**  
+> The multi-stage scheduling framework described in this document (phase embedding analyzer,  
+> scheduling policy generator, Rules S1–S4, ABMP multi-phase protocol, workload profiles)  
+> has been superseded by the single decision kernel in `HORUS_C4_COMPILER_KERNEL_SPEC.md`.  
+> This document remains authoritative for **workload class definitions** (§1.2), **action  
+> implementation details** (what NORMALIZE_THEN_ROUTE does step-by-step), **Phase Transport  
+> hardware physics** (§1.7), and **reference profiles** (§1.9). The **routing decision**  
+> is now owned by C4.
 
 ---
 

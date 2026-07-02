@@ -4,6 +4,12 @@
 **Authority:** C3 Workload Embedding Specification · HBS-11 through HBS-C2  
 **Version:** 1.0 · 2026-07-02  
 
+> **DEPRECATION NOTICE (C4 · 2026-07-02)**  
+> The multi-stage pipeline and flow diagrams in this document have been superseded by the  
+> C4 kernel truth table (`HORUS_C4_COMPILER_KERNEL_SPEC.md §1.4`). This document remains  
+> the visual reference for **boundary physics** (§9), **depth drift schedules** (§8), and  
+> **per-class intuition** (§2–5). The routing authority is now C4.
+
 ---
 
 ## 1. Workload → Region Distribution

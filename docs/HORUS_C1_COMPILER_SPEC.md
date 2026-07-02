@@ -3,7 +3,15 @@
 **Document type:** Compiler-Level Mapping Specification  
 **Authority:** HBS-11 through HBS-14 validated hardware behavior (frozen)  
 **Version:** 1.0 · 2026-07-02  
-**Status:** GOLD — hardware physics are closed; only compiler routing is defined here
+**Status:** SUPERSEDED (decision logic) — retained as action implementation reference
+
+> **DEPRECATION NOTICE (C4 · 2026-07-02)**  
+> The multi-stage decision pipeline described in this document (§1.3 classification engine,  
+> §1.4 mode selection, §1.7 execution flow) has been superseded by the single decision  
+> kernel in `HORUS_C4_COMPILER_KERNEL_SPEC.md`.  
+> This document remains authoritative for **action semantics**: what `NORMALIZE_THEN_ROUTE`  
+> means in hardware terms, how to compute `host_tile_depth`, what the prediction functions  
+> look like, and the ABMP execution sequence. The **routing decision** is now owned by C4.
 
 ---
 
