@@ -55,6 +55,52 @@ function classify(E):
 
 **These regions are NOT redefined by C4.** They are algebraic consequences of the Bias-32 encoding and were validated in HBS-12 (envelope scan), HBS-13 (boundary gap), and HBS-C2 (live occupancy). No compiler version may alter them.
 
+### classify(E) — Implementation Model
+
+`classify(E)` is a **deterministic priority-encoded predicate evaluator over overlapping boundary conditions**. It is not a mathematical partition of the integer domain.
+
+The boundary E-values — **15, 16, 47, 48** — are intentionally multi-predicate: E=16, for example, satisfies both `E > 15` (a condition in the COLLAPSE predicate's negation) and `E ≤ 19` (TRANSITION's upper bound). The `if/elif` evaluation order resolves this ambiguity deterministically and unconditionally. The implementation is equivalent to a hardware priority encoder:
+
+```
+// Priority order (highest to lowest):
+COLLAPSE   wins if E ≤ 15
+TRANSITION wins if E ≤ 19   (and E ≥ 16, since COLLAPSE did not win)
+STABLE     wins if E ≤ 43   (and E ≥ 20)
+TRANSITION wins if E ≤ 47   (and E ≥ 44)
+SATURATION wins otherwise   (E ≥ 48)
+```
+
+The predicates **overlap** at boundary values; the encoder's evaluation order is the resolution mechanism. This is a structural property of the hardware boundary physics, not a deficiency. The two TRANSITION bands (E=16–19, E=44–47) are the same region label but distinct predicates that happen to resolve to the same output. Any implementation that attempts to reformulate `classify(E)` as a non-overlapping closed partition must introduce an explicit tiebreak rule equivalent to the priority ordering above.
+
+**`classify(E)` is a routing primitive. It is not a safety classifier.**
+
+---
+
+### 1.3.1 STABLE Region Semantics Clarification
+
+> ⚠️ **WARNING: STABLE region is not equivalent to numerical correctness or absence of latent collapse modes. It only indicates absence of boundary-triggered transitions (UF flag, OVF flag, Thoth Rollover).**
+
+`STABLE (E = 20–43)` denotes the **absence of boundary-triggered control behavior**, not the absence of arithmetic failure modes.
+
+**STABLE means:**
+- No `underflow_flag` assertion from the boundary crossing condition (E_a + E_b < 32)
+- No `exp_ovf_flag` assertion from the overflow crossing condition (E_a + E_b > 95)
+- No Thoth Rollover event (f + f < 64 for this operation)
+- No region transition event (the estimate `E_est` does not cross E=15/16 or E=47/48)
+
+**STABLE does NOT mean:**
+- Arithmetic result is numerically correct for all operand configurations
+- Fraction precision is preserved at all exponent values within E=20–43
+- Accumulated result remains in STABLE after N successive operations
+- Deep chains will not drift toward COLLAPSE under repeated multiplication
+
+**Empirical basis (HBS-13E, HBS-12D):**  
+HBS-13E measured fraction survival and effective precision across the exponent range. Certain operand configurations — notably self-MUL (`MUL(x, x)`) at low STABLE exponents (E near 20) — demonstrate latent collapse-adjacent behavior: fraction bits collapse toward zero progressively as the exponent drifts downward toward E=16. This behavior is **unflagged by the hardware** (no UF, no OVF, no rollover) because the individual operation's exponent estimate remains within E=20–43.
+
+The kernel routes these operations to `(000, EXECUTE)` correctly: the routing decision is correct. The routing decision does not guarantee the result's numerical integrity. That is a physics constraint, not a compiler constraint.
+
+**Implication for callers:** A workload that remains classified as STABLE throughout its execution lifetime is not guaranteed to produce arithmetically stable results. Callers requiring bounded numerical error must independently validate that their operand magnitudes remain away from the lower STABLE boundary (E ≫ 20). The compiler cannot enforce this constraint because `classify(E)` operates on `estimated_E`, not on a numerical error budget.
+
 ---
 
 ## 1.4 Single Decision Function
@@ -92,14 +138,24 @@ function HORUS_KERNEL(workload, E, depth):
         mode   = 011
         action = CLAMP
 
-    // ── Depth override (applied after region dispatch) ─────────────
-    //    Overrides action and mode when epoch depth is exceeded.
-    //    This check is unconditional: depth > 16 always triggers,
-    //    regardless of region or workload class.
+    // ── Depth override — terminal classification annihilation ──────
+    //    When depth > 16, all prior region/class decisions are
+    //    discarded. This is NOT a mode refinement. This is NOT a
+    //    conditional region adjustment. It is a full semantic reset
+    //    of the decision surface: the region and workload outputs
+    //    computed above are replaced unconditionally and completely.
+    //
+    //    Depth override:
+    //      - does NOT preserve region semantics
+    //      - does NOT represent a mode variant of the region output
+    //      - terminates the decision pipeline with a fixed output
+    //      - is the same for all 4 × 64 = 256 (class, E) pairs
+    //
+    //    It is a terminal annihilation step, not a refinement.
 
     if depth > 16:
-        action = INSERT_EPOCH_BOUNDARY
-        mode   = 010
+        action = INSERT_EPOCH_BOUNDARY   // terminal: replaces region action
+        mode   = 010                     // terminal: replaces region mode
 
     return (mode, action)
 ```
@@ -167,7 +223,7 @@ CLASS_D  │ SATURATION │ YES ║ 010  │ INSERT_EPOCH_BOUNDARY
 
 **Observations from the truth table:**
 
-1. **Depth override is universal.** Any (class, region) combination with depth > 16 produces the same output: `(010, INSERT_EPOCH_BOUNDARY)`. The depth gate collapses all 16 DG=YES entries to a single action.
+1. **Depth override is a terminal annihilation step.** Any (class, region) combination with depth > 16 produces the same output: `(010, INSERT_EPOCH_BOUNDARY)`. This is not a "depth mode" or a refinement of the region output. The depth check discards all region and class state and replaces it with a fixed terminal output. All 16 DG=YES entries collapse to a single action because the terminal step does not read region or class.
 
 2. **Class only matters in TRANSITION and COLLAPSE.** In STABLE, SATURATION, and all DG=YES cases, workload class does not affect the output. Class differentiation is localized to the two boundary-adjacent regions.
 
@@ -175,7 +231,7 @@ CLASS_D  │ SATURATION │ YES ║ 010  │ INSERT_EPOCH_BOUNDARY
 
 4. **mode=011 is the ceiling/floor gate.** It appears only in SATURATION (all classes) and CLASS_A in COLLAPSE. It is the sentinel policy: accumulator saturation guard.
 
-5. **mode=000 is the stable-zone only mode.** It appears exclusively in STABLE (all classes) and TRANSITION for A/C without depth override. It is the default inference mode.
+5. **mode=000 is the stable-zone only mode.** It appears exclusively in STABLE (all classes) and TRANSITION for A/C without depth override. It is the default inference mode. Note: mode=000 in STABLE indicates absence of boundary-triggered control behavior — not a correctness guarantee. See §1.3.1.
 
 ---
 
@@ -340,11 +396,13 @@ The saturation boundary is a fully unified step across all classes. The collapse
 
 | Hypothesis | Result |
 |---|---|
-| Depth dominance | **CONFIRMED** — depth override erases class and region |
+| Depth dominance | **CONFIRMED** — depth override is terminal annihilation: erases class and region |
 | Class irrelevance under override | **CONFIRMED** — H=0, single output for all classes when depth>16 |
 | Region discontinuity hypothesis | **CONFIRMED** — boundaries are step functions, not gradients |
 | No mixed-mode interiors | **CONFIRMED** — each (class, E, depth) maps to exactly one (mode, action) |
-| Kernel as partition function | **CONFIRMED** — 8,192 states partitioned into 6 non-overlapping output classes |
+| Kernel as partition function | **CONFIRMED** — 8,192 states partitioned into 6 non-overlapping decision classes |
+
+> **Semantic scope note:** "Partition function" here refers exclusively to the **decision surface topology** of the kernel — the mapping `(class, E, depth) → (mode, action)` is total, deterministic, and non-overlapping in its output classification. This property confirms the kernel is structurally correct. It does **not** imply that the 6 output classes are numerically safe, that STABLE outputs are arithmetically correct, or that any partition boundary corresponds to a safety boundary. See §1.3.1 for the STABLE region semantics clarification.
 
 ---
 

@@ -966,6 +966,107 @@ The HORUS v3 compiler is proven.
 
 ---
 
+---
+
+## C5.1 — Semantic Consistency Correction Principle
+
+*Added: 2026-07-02 · Authority: Documentation integrity pass following HBS-C5*
+
+### Principle
+
+The HORUS compiler is **structurally deterministic** but **semantically layered**. Deterministic mapping does not imply uniform safety semantics across regions.
+
+A system that passes exhaustive decision-surface enumeration (C5) has proven that its routing logic is consistent and total. It has **not** proven that the arithmetic executed under that routing is numerically safe in all cases. These are distinct properties that must not be conflated.
+
+---
+
+### Formal Clarification 1: Determinism vs Safety
+
+| Property | HORUS C4 Status |
+|---|---|
+| **Determinism** | **GUARANTEED** — identical inputs always produce identical (mode, action) outputs |
+| **Safety** | **NOT GUARANTEED** across all regions — in particular, not inside STABLE |
+
+Determinism means the compiler cannot produce contradictory routing decisions. Safety means the arithmetic result of executing under that routing is numerically well-behaved. These are orthogonal properties.
+
+The STABLE region (`E = 20–43`) is the primary compute band. Its routing decision is correct and deterministic. However, STABLE does not suppress latent collapse-adjacent behaviors for operand configurations near the lower boundary. HBS-13E measured progressive fraction precision collapse in self-MUL chains beginning near E=20 that produced no hardware flags and no region transition events. The routing was correct; the arithmetic was degrading silently.
+
+**The compiler cannot guarantee what it cannot observe.** The kernel inputs are (`workload_class`, `estimated_E`, `depth`). If degraded operand state is not visible in these three inputs, it is invisible to the compiler.
+
+---
+
+### Formal Clarification 2: Region Meaning is Observational, Not Protective
+
+The four region labels — COLLAPSE, TRANSITION, STABLE, SATURATION — are **measured behavior categories** derived from HBS-12 and HBS-13 empirical scans. They describe what the hardware was observed to do under controlled stimulus. They are not protective boundaries enforced by the hardware or the compiler.
+
+| Region label | What it means | What it does NOT mean |
+|---|---|---|
+| `COLLAPSE` (E ≤ 15) | UF flag fires deterministically here | No safe compute is possible here |
+| `TRANSITION` | Boundary physics is active | Normalization guarantees correctness |
+| `STABLE` (E = 20–43) | No boundary-triggered flags fired here | Arithmetic results are numerically correct |
+| `SATURATION` (E ≥ 48) | OVF flag fires deterministically here | All results are maximally wrong |
+
+Region boundaries delineate where hardware flag behavior changes. They do not delineate where arithmetic results become trustworthy. The STABLE band is the region where the hardware is most likely to produce useful results, but "most likely" is an observational characterization, not a formal guarantee.
+
+---
+
+### Formal Clarification 3: Kernel Interpretation Hierarchy
+
+The C4 kernel is composed of three semantically distinct layers, applied in order:
+
+```
+Layer 1 — classify(E)
+    Priority-encoded predicate evaluator over overlapping boundary conditions.
+    Structural routing primitive.
+    Inputs: estimated_E ∈ [0..63]
+    Output: region label ∈ {COLLAPSE, TRANSITION, STABLE, SATURATION}
+    Property: deterministic, total, zero safety semantics
+
+Layer 2 — Region/class dispatch → mode_tag assignment
+    Execution modifier selection based on (region, workload_class).
+    Controls accumulator policy only (CI-2).
+    Does NOT alter arithmetic result, UF, OVF, or rollover behavior.
+    Property: deterministic, class-dependent in TRANSITION and COLLAPSE only
+
+Layer 3 — Depth override: terminal classification annihilation
+    When depth > 16: discards all Layer 1 and Layer 2 outputs.
+    Replaces with fixed terminal output (010, INSERT_EPOCH_BOUNDARY).
+    Is NOT a refinement of prior region/class outputs.
+    Is NOT a mode variant of any region.
+    Is a full semantic reset: region, class, and mode state are all discarded.
+    Property: unconditional, binary, terminal
+```
+
+These three layers must be interpreted in strict order. Layer 3 is not a "fourth region." Layer 2 does not modify arithmetic physics. Layer 1 does not guarantee arithmetic safety.
+
+---
+
+### Warning Block
+
+> ⚠️ **WARNING: STABLE region is not equivalent to numerical correctness or absence of latent collapse modes.**
+>
+> STABLE indicates only the **absence of boundary-triggered transitions** (UF flag, OVF flag, Thoth Rollover). It does not indicate that arithmetic results within STABLE are numerically valid, that fraction precision is preserved, or that deep accumulation chains will not drift toward collapse.
+>
+> Callers that require bounded numerical error must implement independent operand magnitude validation. The compiler does not enforce arithmetic quality constraints; it enforces routing constraints.
+
+---
+
+### Architectural Consequence
+
+The five-layer validation chain for HORUS v3 now reads:
+
+```
+HBS-11 → HBS-14   : Hardware arithmetic and policy layer verified
+HBS-C1 → HBS-C3   : Compiler routing logic defined and structured
+HBS-C4             : Routing logic compressed to a minimal deterministic kernel
+HBS-C5             : Decision surface topology verified by exhaustive enumeration
+HBS-C5.1           : Semantic scope of verification explicitly bounded
+```
+
+C5 proved the kernel is a partition function over its decision surface. C5.1 defines what that proof scope includes and excludes. Together, they constitute a complete and honest account of what has been verified.
+
+---
+
 *Horus (Native Fractional Engine project) · Architecture Philosophy v3 ·
 Digital Physics · Quantized Event Accumulation Engine · Lossy Stable Substrate*
 *HBS-11 Validated: 2026-07-02 · HBS-12 Arithmetic Envelope added: 2026-07-02*
@@ -975,3 +1076,4 @@ Digital Physics · Quantized Event Accumulation Engine · Lossy Stable Substrate
 *C3 Workload Embedding Principle added: 2026-07-02*
 *C4 Compiler Kernel Compression Principle added: 2026-07-02*
 *C5 Decision Surface Validation Principle added: 2026-07-02*
+*C5.1 Semantic Consistency Correction Principle added: 2026-07-02*
