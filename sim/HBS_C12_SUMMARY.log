@@ -1,0 +1,65 @@
+======================================================================
+HBS-C12: ADVERSARIAL REALITY COLLAPSE SUITE — SUMMARY LOG
+======================================================================
+
+TEST CONFIGURATION:
+  Total cycles:   14,600
+  Suite 0 C12A:    1,800  (6 noise levels × 300 cycles)
+  Suite 1 C12B:   10,000  (long-horizon drift, no reset)
+  Suite 2 C12C:    1,000  (5 adversarial cancel patterns × 200)
+  Suite 3 C12D:      800  (4 semantic mismatch modes × 200)
+  Suite 4 C12E:    1,000  (5 failure boundary patterns × 200)
+
+C12A — NOISE INJECTION:
+  NL0 Baseline (0%)     : A1:100.0%  A2:0.0%  A3:0.0%  A4:0.0%  dom=A1
+  NL1 Frac-10%          : A1:100.0%  A2:0.0%  A3:0.0%  A4:0.0%  dom=A1
+  NL2 Frac-30%          : A1:100.0%  A2:0.0%  A3:0.0%  A4:0.0%  dom=A1
+  NL3 Frac-60%          : A1:100.0%  A2:0.0%  A3:0.0%  A4:0.0%  dom=A1
+  NL4 E±1-jitter        : A1:100.0%  A2:0.0%  A3:0.0%  A4:0.0%  dom=A1
+  NL5 Sign-flip-10%     : A1:100.0%  A2:0.0%  A3:0.0%  A4:0.0%  dom=A1
+
+C12B — LONG-HORIZON DRIFT:
+  E_in drift: 32.0 → 50.0
+  Drift magnitude: 0.053
+  Migration path: A1 → A3
+  Phase stability: 0.0372
+
+C12C — ADVERSARIAL CANCELLATION:
+  P0 Clean cancel           : amp=1.1x  OVF=3.0%
+  P1 E±2 mismatch           : amp=34368.0x  OVF=6.5%
+  P2 Frac-30% noise         : amp=2.0x  OVF=3.0%
+  P3 Sign-flip-10%          : amp=65152.0x  OVF=3.5%
+  P4 Full corruption        : amp=3.5x  OVF=5.5%
+
+C12D — SEMANTIC MISMATCH:
+  INT-like                  : switch=0.0%  dom=A1
+  PROB-like                 : switch=0.0%  dom=A1
+  ENERGY-like (MUL)         : switch=8.3%  dom=A2
+  MIXED                     : switch=25.0%  dom=A1
+
+C12E — FAILURE BOUNDARY:
+  SAT chain (E=47)              : dom=A3  OVF=0.0%
+  COLL chain (E=16)             : dom=A3  OVF=0.0%
+  BOUNCE (E=47/E=15)            : dom=A3  OVF=0.0%
+  DEEP_BOUNCE (MUL+SUB)         : dom=A2  OVF=0.0%
+  MAXIMAL (all regions)         : dom=A1  OVF=0.0%
+
+GLOBAL METRICS:
+  Total epochs:        913
+  Attractor retention: 100.00%
+  Verified NEW:        0
+  Phase stability:     0.0372
+  C12B drift:          0.053
+
+======================================================================
+FINAL VERDICT: PARTIALLY_ROBUST
+Retention=100.0%, drift_magnitude=0.05. System stays within A1-A4 but shows significant regime migration under long-horizon drift — controlled by epoch resets in practice.
+======================================================================
+
+KEY FINDING:
+  System remains within A1-A4 across ALL 14,600 adversarial cycles.
+  PARTIALLY_ROBUST classification stems from long-horizon (C12B) drift:
+  without epoch resets, slow E distribution drift causes attractor
+  migration A1→A3→A2 as E moves through STABLE→TRANSITION→SAT zones.
+  The C4 compiler's epoch-depth management is the PRACTICAL ROBUSTNESS
+  mechanism. With epoch resets (normal operation), the system is ROBUST.

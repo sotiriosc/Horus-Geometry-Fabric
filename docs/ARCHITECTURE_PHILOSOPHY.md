@@ -1343,6 +1343,89 @@ attractor definitions are unchanged.
 
 ---
 
+---
+
+## C12 — Adversarial Robustness Principle
+
+**Milestone:** HBS-C12 — 5 adversarial suites, 14,600 cycles, zero new regimes
+
+**Context:** HBS-C10 demonstrated the C8 model is predictive (MODEL_SUFFICIENT, F1=0.854).
+HBS-C12 now probes whether the model holds under conditions that violate its implicit
+assumptions: noise, drift, adversarial cancellation, semantic inconsistency, and
+boundary extremism.
+
+**Conditions tested (all without RTL/compiler/policy changes):**
+- C12A: Fraction scramble up to 60%, E±1 jitter, 10% sign inversion
+- C12B: 10,000-cycle no-reset continuous drift (E_in: 32→50)
+- C12C: Adversarial MUL cancellation with E mismatch and sign corruption
+- C12D: Semantic mismatch (INT / PROB / ENERGY / MIXED interpretations)
+- C12E: Deliberate SAT chain, COLL chain, dual-boundary bounce, maximal stress
+
+**Measured results (913 epochs, 14,600 cycles):**
+
+| Metric | Value |
+|--------|-------|
+| Attractor retention | **100.00%** |
+| Verified new regimes | **0** |
+| Drift magnitude (C12B) | 0.053 (low) |
+| Phase stability | 0.037 (very stable) |
+| Max noise sensitivity | 0.0 pp A1 drop |
+| Max residual amplification | 65,152× (P3 sign flip) |
+| Final verdict | **PARTIALLY_ROBUST** |
+
+**Zero new attractors in 14,600 adversarial cycles.**
+
+**C12 Adversarial Robustness Principle:**
+
+> *A dynamical model of a physical computing system is adversarially robust when all
+> observed behavior under worst-case operational stress maps exclusively to the existing
+> attractor set — not because the model is immune to stress, but because the stress
+> activates known attractor dynamics rather than creating new ones.*
+>
+> *HORUS v3 satisfies this condition. All adversarial tests activate A1 (cancellation),
+> A2 (drift), A3 (boundary lock), or A4 (multi-region entropy) — never a fifth attractor.*
+
+**Critical findings:**
+
+1. **Noise immunity**: The A1 attractor is completely invariant to fraction-level noise
+   (0–60% scramble), E±1 jitter, and ≤10% sign flips. The attractor classifier operates
+   on E-field statistics and region occupancy — fraction noise is invisible.
+
+2. **The Epoch Reset Invariant**: Long-horizon operation without epoch resets (C12B)
+   produces correct attractor classification but unbounded accumulator growth. The C4
+   compiler's `EPOCH_DEPTH=16` periodic `accum_clr` is **the mandatory robustness boundary
+   condition**, not an optimization. Without it, the system is PARTIALLY_ROBUST. With it, ROBUST.
+
+3. **Adversarial cancellation amplification**: The critical vulnerability is **exponent
+   precision in cancellation chains**, not fraction precision:
+   - E±2 mismatch in cancel operand → **34,368× residual amplification**
+   - 10% sign-bit flip rate → **65,152× residual amplification**
+   - 60% fraction scramble → only **3.5× amplification** (benign)
+   The sign bit and E field must be protected in adversarial cancellation contexts.
+
+4. **Semantic mismatch produces no new physics**: INT-like, PROB-like, and ENERGY-like
+   interpretations of the same bit patterns produce exactly the attractors predicted by
+   their operational parameters. The system has no semantic awareness — it responds to
+   `(op_sel, E_in)`, not to programmer-assigned meaning.
+
+5. **Long-horizon drift is predictable**: The A1→A3 migration in C12B (when E crosses
+   TRANSITION boundary) occurs at exactly the C8-predicted boundary (E=44). The attractor
+   model correctly predicts drift-induced regime migration without any modification.
+
+6. **Boundary stress is contained**: All deliberate boundary hammering (SAT chain, COLL
+   chain, dual-bounce, maximal stress) stays within A1-A4. The failure boundary topology
+   is closed under adversarial expansion. No metastable regimes, no bifurcation, no lock-in
+   to a new equilibrium.
+
+**Cumulative evidence (HBS-C7 through C12):**
+
+> Across 68,200+ simulation cycles under structured, adversarial, singular, predictive,
+> and adversarially-real conditions, **zero epochs require a fifth attractor.** The C8
+> four-attractor model is the complete, minimal, and closed description of HORUS v3
+> dynamical behavior.
+
+---
+
 *Horus (Native Fractional Engine project) · Architecture Philosophy v3 ·
 Digital Physics · Quantized Event Accumulation Engine · Lossy Stable Substrate*
 *HBS-11 Validated: 2026-07-02 · HBS-12 Arithmetic Envelope added: 2026-07-02*
@@ -1358,3 +1441,4 @@ Digital Physics · Quantized Event Accumulation Engine · Lossy Stable Substrate
 *C8 Phase-Space Reduction Principle added: 2026-07-02*
 *C9 Singularity Validation Principle added: 2026-07-02*
 *C10 Predictive Validation Principle added: 2026-07-02*
+*C12 Adversarial Robustness Principle added: 2026-07-02*

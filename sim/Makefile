@@ -410,3 +410,19 @@ hbs_c10: sim_hbs_c10
 	@echo "         HBS_C10_SUMMARY.log"
 	@echo "         docs/HBS_C10_RESULTS.md  docs/HORUS_PREDICTIVE_VALIDATION.md"
 	@echo ""
+
+# ── HBS-C12: Adversarial Reality Collapse Suite ───────────────────────────────
+# 5 adversarial suites × mixed cycles = 14,600 cycles on horus_system DUT.
+sim_hbs_c12: $(TB)/tb_hbs_c12_adversarial_reality.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+hbs_c12: sim_hbs_c12
+	@echo ""
+	@echo "Running HBS-C12 Adversarial Reality Collapse Suite..."
+	$(VVP) sim_hbs_c12
+	@echo ""
+	$(PYTHON) analyze_hbs_c12_adversarial_reality.py
+	@echo ""
+	@echo "Outputs: HBS_C12_ADVERSARIAL.csv  HBS_C12_SUMMARY.log"
+	@echo "         docs/HBS_C12_RESULTS.md  docs/HORUS_ADVERSARIAL_BEHAVIOR.md"
+	@echo ""
