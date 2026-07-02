@@ -478,3 +478,19 @@ hbs_c15: sim_hbs_c15
 	@echo "Outputs: HBS_C15_OOB.csv  HBS_C15_SUMMARY.log"
 	@echo "         docs/HBS_C15_RESULTS.md  docs/HORUS_CONTROL_ROBUSTNESS.md"
 	@echo ""
+
+# ── HBS-C16: Control Causality Isolation Suite ────────────────────────────────
+# 4 modes × 2,000 cycles = 8,000 cycles. Full pipeline trace per cycle.
+sim_hbs_c16: $(TB)/tb_hbs_c16_causal_isolation.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+hbs_c16: sim_hbs_c16
+	@echo ""
+	@echo "Running HBS-C16 Control Causality Isolation Suite..."
+	$(VVP) sim_hbs_c16
+	@echo ""
+	$(PYTHON) analyze_hbs_c16_causality.py
+	@echo ""
+	@echo "Outputs: HBS_C16_CAUSAL_TRACE.csv  HBS_C16_SUMMARY.log"
+	@echo "         docs/HBS_C16_CAUSALITY_REPORT.md  docs/HORUS_CONTROL_CAUSALITY_MAP.md"
+	@echo ""

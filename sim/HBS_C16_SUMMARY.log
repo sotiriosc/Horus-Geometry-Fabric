@@ -1,0 +1,20 @@
+HBS_C16_VERDICT=B
+HBS_C16_LABEL=ACCUMULATION-ONLY DIVERGENCE
+EARLIEST_DIVERGENCE_CYCLE=0
+EARLIEST_DIVERGENCE_STAGE=S3_accum_word
+
+PER_STAGE_DIVERGENCE
+  S1_mant_sum: NONE (0 divergent cycles)
+  S1_scale_reg: NONE (0 divergent cycles)
+  S2_computed: NONE (0 divergent cycles)
+  S3_accum_word: 0 (62 divergent cycles)
+  S4_accum_pre: 1 (61 divergent cycles)
+  S4_accum_post: 0 (62 divergent cycles)
+  S5_result: NONE (0 divergent cycles)
+  S5_accum_out: 1 (1999 divergent cycles)
+
+S1_ALU_DIVERGES=NO
+S2_COMPUTED_DIVERGES=NO
+S3_ACCUM_WORD_DIVERGES=YES
+S4_ACCUM_STATE_DIVERGES=YES
+S5_RESULT_DIVERGES=NO
