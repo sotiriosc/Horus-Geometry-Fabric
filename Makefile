@@ -1,4 +1,4 @@
 # Horus NFE — root convenience wrapper (source of truth: sim/Makefile)
-.PHONY: all test fidelity sim_c analysis clean help
-all test fidelity sim_c analysis clean help:
+.PHONY: all test fidelity sim_c analysis clean help hbs_stability failure_domain cancel_analysis composition_analysis hbs11 hbs12
+all test fidelity sim_c analysis clean help hbs_stability failure_domain cancel_analysis composition_analysis hbs11 hbs12:
 	$(MAKE) -C sim $@

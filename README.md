@@ -17,6 +17,7 @@ for edge AI workloads — not IEEE-754 scientific arithmetic.
 |-------|--------|
 | **Core MAC/NFE** | Verified — ADD/SUB/MUL unit tests, C-model vs FP64, Bias-32 hidden-bit encoding |
 | **Accumulation stability** | Verified — floor, saturate, mixed tiny/large propagate (`tb_boundary_stress`) |
+| **Composition geometry analysis** | Verified — stable in shallow chains / deterministic in deep regime ([docs/COMPOSITION_GEOMETRY.md](docs/COMPOSITION_GEOMETRY.md)) |
 | **Scaling (16-tile)** | In-Development — 4×4 systolic + 2×2 mesh sim-verified; 16-tile mesh in progress |
 
 RTL simulation: **26/26 tests pass** (`make test`). Synthesis constraints target
@@ -53,6 +54,10 @@ make sim_c
 
 # Python encoding / adversarial analysis
 make analysis
+
+# Cancellation + composition geometry (Tests 9–10)
+make cancel_analysis
+make composition_analysis
 ```
 
 All simulation targets run from `sim/`; the root `Makefile` forwards to it.
@@ -65,6 +70,7 @@ All simulation targets run from `sim/`; the root `Makefile` forwards to it.
 
 | Document | Description |
 |----------|-------------|
+| [docs/COMPOSITION_GEOMETRY.md](docs/COMPOSITION_GEOMETRY.md) | Deterministic residual manifold; Tests 9–10; Compiler/QAT bias-table guide |
 | [docs/ARCHITECTURE_PHILOSOPHY.md](docs/ARCHITECTURE_PHILOSOPHY.md) | Digital Physics paradigm; QEA identity; IEEE-754 contrast |
 | [docs/DESIGN_LIMITATIONS.md](docs/DESIGN_LIMITATIONS.md) | Architectural trade-offs; fidelity vs dynamic range; v4 roadmap |
 | [docs/NUMERICS.md](docs/NUMERICS.md) | Bias-32 encoding reference and canonical constants |

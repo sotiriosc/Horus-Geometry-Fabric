@@ -136,6 +136,7 @@ module horus_nfe_wrapper #(
         .op_a           (op_a),
         .op_b           (op_b),
         .op_sel         (op_sel),
+        .mode_tag       (3'b000),           // Standard mode — wrapper has no policy port
         .accum_en       (gated_accum_en),   // ← gated by tile_depth
         .accum_clr      (accum_clr),
         .result         (result),

@@ -31,6 +31,7 @@ module tb_horus_nfe;
         .op_a          (op_a),
         .op_b          (op_b),
         .op_sel        (op_sel),
+        .mode_tag      (3'b000),   // Standard mode — no policy override in unit tests
         .accum_en      (accum_en),
         .accum_clr     (accum_clr),
         .result        (result),

@@ -1,0 +1,46 @@
+HBS CORE STABILITY SUITE — MASTER INDEX
+Horus NFE v3 | horus_system | host_tile_depth=63
+FAILURE MAPPING — observe only, no RTL modification
+
+=== TEST_01_UNDERFLOW_SCAN ===
+failure modes: multiply floor sentinel collapse
+stability: collapse observed at boundary f
+collapse points: irst collapse index logged above
+anomalies: see ghost_zero_like counter
+confidence: 0/100  uf=126 ovf=0 ghost=0
+
+=== TEST_02_EXPONENT_CHAOS ===
+failure modes: re; saturation and floor streaks
+stability: unded oscillation or convergence
+collapse points: no long sat/floor lock-in
+anomalies: see unique_stored_E count
+confidence: 100/100  uf=0 ovf=0 ghost=0
+
+=== TEST_03_ACCUM_BIAS ===
+failure modes: ix integer codeword accumulation
+stability: monotonic pe_accum growth
+collapse points: floor regime dominant
+anomalies: see non_monotonic counter
+confidence: 0/100  uf=392 ovf=0 ghost=0
+
+=== TEST_04_CANCELLATION ===
+failure modes: ccumulation ADD SUB delta cancel
+stability: ancellation symmetry in pe_accum
+collapse points: MUL sign symmetry in codewords
+anomalies: ghost_zero_like counter in log
+confidence: 100/100  uf=0 ovf=0 ghost=0
+
+=== TEST_05_DISTRIBUTION_SHOCK ===
+failure modes: e; saturation vs floor dominance
+stability: aturation-dominated under spikes
+collapse points: spike group drives OVF band
+anomalies: see recover_noise counter
+confidence: 94/100  uf=0 ovf=34 ghost=0
+
+=== TEST_06_GHOST_ZERO ===
+failure modes: zero collapses flagged or absent
+stability:  flagged or non-zero propagation
+collapse points: see flagged_zero counter
+anomalies: o_like total in summary counters
+confidence: 100/100  uf=58 ovf=0 ghost=0
+

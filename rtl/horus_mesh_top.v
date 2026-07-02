@@ -278,6 +278,7 @@ module horus_mesh_top #(
                     .op_a           (loc_d[12:0]),
                     .op_b           (weight_flat[(gi*MESH_SIZE + gj)*13 +: 13]),
                     .op_sel         (op_sel),
+                    .mode_tag       (3'b000),   // Standard mode — mesh tiles run baseline policy
 
                     .accum_en       (accum_en & loc_v),
                     .accum_clr      (accum_clr),

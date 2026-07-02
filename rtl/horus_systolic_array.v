@@ -255,27 +255,25 @@ module horus_systolic_array #(
                     .rst_n          (rst_n),
 
                     // ── Local pipeline register operands ─────────────────────
-                    // op_a receives the activation that has propagated c columns
-                    // right from the left boundary over the last c clock cycles.
-                    // op_b receives the weight that has propagated r rows down
-                    // from the top boundary over the last r clock cycles.
                     .op_a           (act_reg[r][c]),
                     .op_b           (wt_reg[r][c]),
 
                     // ── Operation select: MUL hardwired ──────────────────────
-                    // op_sel = 2'b10 selects the fractional multiplication path
-                    // through the horus_nfe 20-bit scale-register pipeline.
-                    // This value is a compile-time constant — synthesis removes
-                    // the mux and routes directly to the MUL datapath.
                     .op_sel         (2'b10),
+
+                    // ── Compute Policy: Standard mode (array-level default) ───
+                    // Systolic array PEs run MODE_STANDARD (3'b000) by default.
+                    // Per-PE mode control can be added in a future revision by
+                    // broadcasting a mode_tag bus alongside the data lanes.
+                    .mode_tag       (3'b000),
 
                     // ── Accumulator control: global fan-out ───────────────────
                     .accum_en       (accum_en),
                     .accum_clr      (accum_clr),
 
                     // ── Outputs ───────────────────────────────────────────────
-                    .result         (pe_result[r][c]),   // 13-bit current product
-                    .accum_out      (pe_accum[r][c]),    // 32-bit running sum
+                    .result         (pe_result[r][c]),
+                    .accum_out      (pe_accum[r][c]),
 
                     // ── Status flags (open at array level) ────────────────────
                     .rollover_flag  (),

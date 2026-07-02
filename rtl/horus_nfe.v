@@ -75,6 +75,28 @@
 //   2'b11  NOP       result ← op_a  (pass-through; no flag side-effects)
 // ============================================================================
 
+// ── Compute Policy Mode Tags ──────────────────────────────────────────────────
+// These constants define the 3-bit in-band policy field (mode_tag).
+// 3'b100..3'b111 are reserved and treated as MODE_STANDARD by the decoder.
+// ─────────────────────────────────────────────────────────────────────────────
+//   MODE_STANDARD   (3'b000) : Baseline arithmetic — current behavior unchanged.
+//   MODE_BIAS_CORR  (3'b001) : Bias-Corrected accumulation.
+//                              Adds a per-exponent-band correction offset (from
+//                              the hardcoded BIAS_LUT) to each codeword before
+//                              it is folded into accum_reg.  Targets W01/Test 9
+//                              cancel-drift mitigation.
+//   MODE_PRE_SCALED (3'b010) : Pre-Scaled accumulation.
+//                              Decrements the stored exponent by 1 before
+//                              accumulation (÷2 in real space) when the codeword
+//                              exponent is non-zero.  Prevents accum_reg
+//                              saturation under large-operand chains (W03/W06).
+//   MODE_SAFE_ACCUM (3'b011) : Safe-Accumulation.
+//                              Adds with 32-bit unsigned saturating arithmetic:
+//                              accum_reg is clamped to 32'hFFFFFFFF on overflow
+//                              rather than wrapping.  Targets W04 spike-injection
+//                              saturation without modular wrap artifacts.
+// ─────────────────────────────────────────────────────────────────────────────
+
 module horus_nfe (
     input  wire        clk,
     input  wire        rst_n,       // Active-low synchronous reset
@@ -83,6 +105,12 @@ module horus_nfe (
     input  wire [12:0] op_a,        // Operand A
     input  wire [12:0] op_b,        // Operand B  /  fractional delta for ADD|SUB
     input  wire [1:0]  op_sel,      // Operation select
+
+    // ── Compute Policy (in-band, single-cycle mux path) ──────────────────────
+    // Decoded combinationally in the Policy Decoder block below.
+    // Drives only the accumulation path — arithmetic result is unaffected.
+    input  wire [2:0]  mode_tag,    // 000=Standard 001=Bias-Corrected
+                                    // 010=Pre-Scaled 011=Safe-Accum 1xx=Reserved
 
     // ── Neural-network accumulator control ───────────────────────────────────
     input  wire        accum_en,    // Fold current result into 32-bit accumulator
@@ -95,6 +123,14 @@ module horus_nfe (
     output reg         underflow_flag,  // 1-cycle pulse: Underflow Floor fired
     output reg         exp_ovf_flag     // 1-cycle pulse: exponent saturated
 );
+
+    // =========================================================================
+    // Compute Policy constants  (must match module-level comment above)
+    // =========================================================================
+    localparam [2:0] MODE_STANDARD   = 3'b000;
+    localparam [2:0] MODE_BIAS_CORR  = 3'b001;
+    localparam [2:0] MODE_PRE_SCALED = 3'b010;
+    localparam [2:0] MODE_SAFE_ACCUM = 3'b011;
 
     // =========================================================================
     // Local constants
@@ -183,6 +219,42 @@ module horus_nfe (
     reg [6:0]            norm_mant;   // SUB Guard-B: normalised mantissa
 
     // =========================================================================
+    // Bias LUT — per-exponent-band correction offset  (MODE_BIAS_CORR)
+    // ─────────────────────────────────────────────────────────────────────────
+    // 64-entry ROM indexed by stored exponent e_a[5:0].  Each entry is a
+    // 13-bit correction codeword derived from the Test 9 cancel-residual
+    // manifold.  Initialised to zero here; override at graph-compile time or
+    // via a parameter ROM replacement for production calibration.
+    //
+    // Synthesis: inferred as a distributed ROM (LUTRAM / registers).
+    // Single-cycle read — no pipeline stage.
+    // =========================================================================
+    reg [12:0] BIAS_LUT [0:63];
+    integer    lut_i;
+    initial begin
+        for (lut_i = 0; lut_i < 64; lut_i = lut_i + 1)
+            BIAS_LUT[lut_i] = 13'd0;   // Calibration placeholder — replace with
+                                        // per-exponent bias table from Test 9.
+    end
+
+    // =========================================================================
+    // Policy Decoder intermediates — blocking-assigned registers
+    // ─────────────────────────────────────────────────────────────────────────
+    // accum_word and safe_sum_reg are computed using blocking '=' assignments
+    // INSIDE the sequential always block, immediately after 'computed' is set.
+    // This ensures the NBA  accum_reg <= ... accum_word  reads the CURRENT
+    // cycle's value without a delta-cycle scheduling gap.
+    //
+    // All three mux paths are single-cycle combinational:
+    //   BIAS_CORR   : 13-bit add  (computed + BIAS_LUT[e_a])
+    //   PRE_SCALED  : 1-bit mux   ({sign, E−1, frac}  or computed)
+    //   SAFE_ACCUM  : 33-bit add  with carry-out saturation mux
+    //   Standard    : passthrough (computed unchanged)
+    // =========================================================================
+    reg [12:0] accum_word;    // Policy-decoded word folded into accum_reg
+    reg [32:0] safe_sum_reg;  // 33-bit intermediate for SAFE_ACCUM saturation
+
+    // =========================================================================
     // Sequential core
     // =========================================================================
     always @(posedge clk or negedge rst_n) begin
@@ -268,8 +340,20 @@ module horus_nfe (
                     end
 
                     result <= computed;
-                    if (accum_en && !accum_clr)
-                        accum_reg <= accum_reg + {{(ACCUM_W-NFE_W){1'b0}}, computed};
+                    if (accum_en && !accum_clr) begin
+                        // ── Policy Decoder (inline, blocking) ─────────────────
+                        case (mode_tag)
+                            MODE_BIAS_CORR:  accum_word = computed + BIAS_LUT[e_a];
+                            MODE_PRE_SCALED: accum_word = (computed[11:6] != 6'd0)
+                                             ? {computed[12], computed[11:6]-6'd1, computed[5:0]}
+                                             : computed;
+                            default:         accum_word = computed;
+                        endcase
+                        safe_sum_reg = {1'b0, accum_reg} + {20'b0, computed};
+                        accum_reg <= (mode_tag == MODE_SAFE_ACCUM)
+                                     ? (safe_sum_reg[32] ? 32'hFFFF_FFFF : safe_sum_reg[31:0])
+                                     : accum_reg + {{(ACCUM_W-NFE_W){1'b0}}, accum_word};
+                    end
                 end
 
                 // =============================================================
@@ -312,8 +396,19 @@ module horus_nfe (
                             underflow_flag <= 1'b1;
 
                         result <= computed;
-                        if (accum_en && !accum_clr)
-                            accum_reg <= accum_reg + {{(ACCUM_W-NFE_W){1'b0}}, computed};
+                        if (accum_en && !accum_clr) begin
+                            case (mode_tag)
+                                MODE_BIAS_CORR:  accum_word = computed + BIAS_LUT[e_a];
+                                MODE_PRE_SCALED: accum_word = (computed[11:6] != 6'd0)
+                                                 ? {computed[12], computed[11:6]-6'd1, computed[5:0]}
+                                                 : computed;
+                                default:         accum_word = computed;
+                            endcase
+                            safe_sum_reg = {1'b0, accum_reg} + {20'b0, computed};
+                            accum_reg <= (mode_tag == MODE_SAFE_ACCUM)
+                                         ? (safe_sum_reg[32] ? 32'hFFFF_FFFF : safe_sum_reg[31:0])
+                                         : accum_reg + {{(ACCUM_W-NFE_W){1'b0}}, accum_word};
+                        end
 
                     end else begin
                         // ── Guard Path B: borrow required ─────────────────────
@@ -439,8 +534,19 @@ module horus_nfe (
 
                     // Step 5 — Register output; fold into NN accumulator if enabled.
                     result <= computed;
-                    if (accum_en && !accum_clr)
-                        accum_reg <= accum_reg + {{(ACCUM_W-NFE_W){1'b0}}, computed};
+                    if (accum_en && !accum_clr) begin
+                        case (mode_tag)
+                            MODE_BIAS_CORR:  accum_word = computed + BIAS_LUT[e_a];
+                            MODE_PRE_SCALED: accum_word = (computed[11:6] != 6'd0)
+                                             ? {computed[12], computed[11:6]-6'd1, computed[5:0]}
+                                             : computed;
+                            default:         accum_word = computed;
+                        endcase
+                        safe_sum_reg = {1'b0, accum_reg} + {20'b0, computed};
+                        accum_reg <= (mode_tag == MODE_SAFE_ACCUM)
+                                     ? (safe_sum_reg[32] ? 32'hFFFF_FFFF : safe_sum_reg[31:0])
+                                     : accum_reg + {{(ACCUM_W-NFE_W){1'b0}}, accum_word};
+                    end
                 end
 
                 // =============================================================

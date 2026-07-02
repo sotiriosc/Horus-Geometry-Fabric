@@ -85,22 +85,51 @@
 //  to freely retime state registers without disturbing the output decode path.
 // ============================================================================
 
+// ── Depth-Monitor: Flow Control (decoupled from data flit) ───────────────────
+//
+// The controller maintains a `depth_counter` that counts individual
+// STREAM-cycle MAC accumulations across the current computation window.
+// When `depth_counter` equals `max_depth` (host-configurable, 0 = disabled)
+// the controller pulses `depth_reset` for exactly one cycle to trigger an
+// automatic accumulator clear on the connected systolic array.
+//
+// This keeps Snapshot/Reset firmly in the **control plane** — it is triggered
+// by cycle counting in the FSM, never by a data-flit bit.  The data path remains
+// algebraically pure between depth boundaries.
+//
+// Depth counter semantics:
+//   • Increments every cycle that `state == STREAM` (i.e. every real MAC cycle).
+//   • Resets to zero whenever `depth_reset` fires or `state` leaves STREAM.
+//   • `max_depth == 0` disables the monitor (no automatic resets).
+//   • Minimum useful value: 4 (shallow-chain boundary per Test 10A).
+//   • Recommended mid-range: 8–30.  Values ≥ 30 permit deep-chain floor regime.
+// ─────────────────────────────────────────────────────────────────────────────
+
 module horus_controller (
-    input  wire clk,
-    input  wire rst_n,           // Active-low asynchronous reset
+    input  wire       clk,
+    input  wire       rst_n,           // Active-low asynchronous reset
 
     // ── Host handshake ────────────────────────────────────────────────────────
-    input  wire start_compute,   // Rising edge / single-cycle pulse from host:
-                                 //   "begin a new computation window"
-    input  wire result_ack,      // Single-cycle pulse from host:
-                                 //   "row_out data has been captured, return to IDLE"
+    input  wire       start_compute,   // Pulse: "begin a new computation window"
+    input  wire       result_ack,      // Pulse: "row_out data latched; return to IDLE"
 
-    // ── Systolic array control (connect directly to horus_systolic_array) ─────
-    output reg  accum_clr,       // 1-cycle high in SETUP: zeroes all 16 PE accumulators
-    output reg  accum_en,        // 7-cycle high in STREAM: accumulates PE products
+    // ── Depth-Monitor configuration (Flow Control) ────────────────────────────
+    // max_depth : 6-bit threshold for automatic accumulator reset.
+    //             0 = disabled.  Non-zero: fires depth_reset when
+    //             depth_counter == max_depth during STREAM.
+    input  wire [5:0] max_depth,
+
+    // ── Systolic array control ────────────────────────────────────────────────
+    output reg        accum_clr,       // 1-cycle high in SETUP or depth_reset
+    output reg        accum_en,        // 7-cycle high in STREAM
+
+    // ── Depth-Monitor status ──────────────────────────────────────────────────
+    output reg        depth_reset,     // 1-cycle pulse: depth_counter hit max_depth
+                                       // Route to accum_clr on the array; the
+                                       // Depth-Monitor auto-clears depth_counter.
 
     // ── Host status ───────────────────────────────────────────────────────────
-    output reg  data_valid       // High during READY: row_out_0..3 are stable and valid
+    output reg        data_valid       // High during READY
 );
 
     // =========================================================================
@@ -137,9 +166,10 @@ module horus_controller (
     // =========================================================================
     // Registers
     // =========================================================================
-    reg [3:0] state;       // Current one-hot state register
-    reg [3:0] next_state;  // Combinational next-state wire (driven by Process 2)
-    reg [2:0] cycle_cnt;   // 3-bit pipeline fill counter; active only in STREAM
+    reg [3:0] state;          // Current one-hot state register
+    reg [3:0] next_state;     // Combinational next-state wire (driven by Process 2)
+    reg [2:0] cycle_cnt;      // 3-bit pipeline fill counter; active only in STREAM
+    reg [5:0] depth_counter;  // Depth-Monitor MAC accumulation counter
 
     // =========================================================================
     // Process 1 — State register and cycle counter  (sequential)
@@ -156,20 +186,31 @@ module horus_controller (
     // =========================================================================
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state     <= IDLE;
-            cycle_cnt <= 3'd0;
+            state         <= IDLE;
+            cycle_cnt     <= 3'd0;
+            depth_counter <= 6'd0;
         end else begin
             state <= next_state;
 
             // cycle_cnt: free-run only inside STREAM; reset everywhere else.
-            // When state == STREAM and cycle_cnt reaches FILL_CYCLES, this
-            // block increments to FILL_CYCLES+1 (= 7).  That is harmless —
-            // state has already transitioned to READY on this same edge,
-            // so the counter is reset to zero on the very next posedge.
             if (state == STREAM)
                 cycle_cnt <= cycle_cnt + 3'd1;
             else
                 cycle_cnt <= 3'd0;
+
+            // ── Depth-Monitor counter ──────────────────────────────────────────
+            // Counts MAC cycles inside STREAM.  Resets on:
+            //   • depth_reset fire this cycle (monitor threshold met)
+            //   • Leaving STREAM (window boundary)
+            //   • Global reset
+            if (state == STREAM) begin
+                if ((max_depth != 6'd0) && (depth_counter == max_depth))
+                    depth_counter <= 6'd0;    // Reset: depth boundary hit
+                else
+                    depth_counter <= depth_counter + 6'd1;
+            end else begin
+                depth_counter <= 6'd0;
+            end
         end
     end
 
@@ -252,56 +293,63 @@ module horus_controller (
     // states with compound output patterns.
     // =========================================================================
     always @(*) begin
-        // Inactive defaults — prevent latches; synthesis generates a mux tree
-        accum_clr  = 1'b0;
-        accum_en   = 1'b0;
-        data_valid = 1'b0;
+        // Inactive defaults — prevent latches; synthesis generates a mux tree.
+        accum_clr   = 1'b0;
+        accum_en    = 1'b0;
+        depth_reset = 1'b0;
+        data_valid  = 1'b0;
 
         case (state)
 
             IDLE: begin
-                // All control lines inactive; array idles with inputs held.
-                accum_clr  = 1'b0;
-                accum_en   = 1'b0;
-                data_valid = 1'b0;
+                accum_clr   = 1'b0;
+                accum_en    = 1'b0;
+                depth_reset = 1'b0;
+                data_valid  = 1'b0;
             end
 
             SETUP: begin
-                // Pulse accum_clr for exactly 1 clock cycle.
-                // Inside horus_nfe: accum_clr has priority over accum_en and
-                // writes 0 to accum_reg in the same clock edge (blocking assign
-                // at the top of the accumulator update section in horus_nfe.v).
-                accum_clr  = 1'b1;
-                accum_en   = 1'b0;
-                data_valid = 1'b0;
+                // Pulse accum_clr for exactly 1 clock cycle to zero all PE
+                // accumulators before a fresh computation window.
+                accum_clr   = 1'b1;
+                accum_en    = 1'b0;
+                depth_reset = 1'b0;
+                data_valid  = 1'b0;
             end
 
             STREAM: begin
-                // Assert accum_en for all 7 fill cycles.
-                // Each PE multiplies its locally latched act_reg × wt_reg
-                // and folds the 13-bit NFE product into its 32-bit accum_reg
-                // on every posedge while this signal is high.
-                accum_clr  = 1'b0;
+                // Assert accum_en every STREAM cycle.
+                //
+                // Depth-Monitor: if max_depth is non-zero and depth_counter has
+                // reached the threshold, simultaneously assert depth_reset and
+                // accum_clr for ONE cycle.  accum_en is held HIGH so the MAC
+                // pipeline does not stall — the clear takes effect atomically
+                // (accum_clr has priority over accum_en inside horus_nfe).
+                // The depth_counter resets to zero on this same clock edge
+                // (Process 1 above), restarting the depth window immediately.
+                if ((max_depth != 6'd0) && (depth_counter == max_depth)) begin
+                    depth_reset = 1'b1;
+                    accum_clr   = 1'b1;   // Snapshot-and-clear; control-plane only
+                end else begin
+                    depth_reset = 1'b0;
+                    accum_clr   = 1'b0;
+                end
                 accum_en   = 1'b1;
                 data_valid = 1'b0;
             end
 
             READY: begin
-                // NOP cycle: accum_en=0 allows horus_nfe's registered output
-                // stage (accum_out <= accum_reg, horus_nfe.v line 319) to
-                // capture the final accumulated value.  data_valid=1 tells the
-                // host that row_out_0..3 (combinational sums of the 16
-                // pe_accum wires in horus_systolic_array) are now stable.
-                accum_clr  = 1'b0;
-                accum_en   = 1'b0;
-                data_valid = 1'b1;
+                accum_clr   = 1'b0;
+                accum_en    = 1'b0;
+                depth_reset = 1'b0;
+                data_valid  = 1'b1;
             end
 
             default: begin
-                // Fault state: keep all outputs inactive.
-                accum_clr  = 1'b0;
-                accum_en   = 1'b0;
-                data_valid = 1'b0;
+                accum_clr   = 1'b0;
+                accum_en    = 1'b0;
+                depth_reset = 1'b0;
+                data_valid  = 1'b0;
             end
 
         endcase

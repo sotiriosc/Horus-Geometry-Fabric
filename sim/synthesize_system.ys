@@ -1,4 +1,9 @@
-# yosys script: synthesize_system.ys
+# synthesize_system.ys — full Horus system synthesis check
+# New in this revision:
+#   horus_nfe.v        — mode_tag port, Policy Decoder (combinational mux layer)
+#   horus_controller.v — max_depth port, depth_counter, depth_reset output
+#   horus_top.v        — max_depth / depth_reset_out passthrough ports
+#   horus_systolic_array.v — mode_tag=3'b000 tied on all 16 PE instances
 
 # 1. Read all Verilog source modules
 read_verilog horus_nfe.v

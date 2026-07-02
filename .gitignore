@@ -2,12 +2,18 @@
 sim/sim_*
 sim/horus_sim
 sim/*.vcd
+*.vcd
 sim/fidelity_benchmark.csv
 sim/fidelity_plot.png
 sim/fidelity_error_plot.png
 sim/nfe_sim
 sim/tb_*
-sim/horus_*_sim
+HFD_TEST_*.log
+HORUS_WEAKNESS_MAP.log
+cancel_analysis.csv
+TEST_09_SUMMARY.log
+composition_analysis.csv
+TEST_10_SUMMARY.log
 
 # Python
 __pycache__/

@@ -69,6 +69,11 @@ module horus_system (
     input  wire [12:0] op_b,
     input  wire [1:0]  op_sel,      // 00=ADD  01=SUB  10=MUL  11=NOP
 
+    // ── Compute Policy (in-band, pass-through to horus_nfe) ──────────────────
+    // 000=Standard  001=Bias-Corrected  010=Pre-Scaled  011=Safe-Accum
+    // 1xx=Reserved (treated as Standard inside horus_nfe)
+    input  wire [2:0]  mode_tag,
+
     // ── Accumulator control ───────────────────────────────────────────────────
     input  wire        accum_en,    // host's accumulation request
     input  wire        accum_clr,   // synchronous clear; also resets op_count
@@ -194,6 +199,7 @@ module horus_system (
         .op_a           (op_a),
         .op_b           (op_b),
         .op_sel         (op_sel),
+        .mode_tag       (mode_tag),         // ← Compute Policy pass-through
         .accum_en       (gated_accum_en),   // ← ONLY bridge: gated by controller
         .accum_clr      (accum_clr),
         .result         (result),

@@ -30,7 +30,7 @@ SRC_SYSTOLIC := $(RTL)/horus_systolic_array.v $(RTL)/horus_controller.v \
                 $(RTL)/horus_input_buffer.v $(RTL)/horus_top.v
 
 # =============================================================================
-.PHONY: all
+.PHONY: all hbs11 hbs12
 all: sim_mesh
 	@echo ""
 	@echo "Running Horus Mesh Testbench (7/7 tests expected)..."
@@ -66,6 +66,80 @@ sim_boundary: $(TB)/tb_boundary_stress.v $(SRC_CORE)
 
 sim_fidelity: $(TB)/tb_fidelity_benchmark.v $(RTL)/horus_nfe.v
 	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+sim_hbs: $(TB)/tb_hbs_core_stability.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: hbs_stability
+hbs_stability: sim_hbs
+	@echo ""
+	@echo "Running HBS Core Stability Suite (failure mapping)..."
+	$(VVP) sim_hbs
+	@echo ""
+	@echo "Logs: HBS_CORE_MASTER_INDEX.log + HBS_CORE_TEST_01..06_*.log"
+
+sim_hfd: $(TB)/tb_horus_failure_domain.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+sim_cancel: $(TB)/tb_horus_cancel_analysis.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+sim_comp: $(TB)/tb_horus_composition_analysis.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+# HBS-11 policy validation: horus_system + horus_controller only
+sim_hbs11: $(TB)/tb_hbs11_policy_validation.v $(SRC_CORE) $(RTL)/horus_controller.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: hbs11
+hbs11: sim_hbs11
+	@echo ""
+	@echo "Running HBS-11 Execution Policy Validation Suite..."
+	$(VVP) sim_hbs11
+	@echo ""
+	$(PYTHON) analyze_hbs11.py
+	@echo ""
+	@echo "Output: HBS11_POLICY_VALIDATION.csv + HBS11_POLICY_SUMMARY.log"
+
+# HBS-12 arithmetic boundary mapping: horus_system only (mode_tag=000)
+sim_hbs12: $(TB)/tb_hbs12_arithmetic_boundary.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: hbs12
+hbs12: sim_hbs12
+	@echo ""
+	@echo "Running HBS-12 Arithmetic Boundary Mapping Suite..."
+	$(VVP) sim_hbs12
+	@echo ""
+	$(PYTHON) analyze_hbs12.py
+	@echo ""
+	@echo "Output: HBS12_ARITHMETIC_BOUNDARY.csv + HBS12_SUMMARY.log"
+
+.PHONY: failure_domain cancel_analysis composition_analysis
+failure_domain: sim_hfd
+	@echo ""
+	@echo "Running HORUS Failure-Domain Analysis..."
+	$(VVP) sim_hfd
+	@echo ""
+	@echo "Output: HORUS_WEAKNESS_MAP.log + HFD_TEST_01..06_*.log"
+
+cancel_analysis: sim_cancel
+	@echo ""
+	@echo "Running TEST 9 cancellation structure study..."
+	$(VVP) sim_cancel
+	@echo ""
+	$(PYTHON) analyze_cancellation.py
+	@echo ""
+	@echo "Output: cancel_analysis.csv + TEST_09_SUMMARY.log"
+
+composition_analysis: sim_comp
+	@echo ""
+	@echo "Running TEST 10 composition stress study..."
+	$(VVP) sim_comp
+	@echo ""
+	$(PYTHON) analyze_composition.py
+	@echo ""
+	@echo "Output: composition_analysis.csv + TEST_10_SUMMARY.log"
 
 # =============================================================================
 .PHONY: test
@@ -139,8 +213,11 @@ wave_nfe: sim_nfe
 .PHONY: clean
 clean:
 	rm -f sim_nfe sim_pgate sim_router sim_wrapper sim_mesh sim_system \
-	      sim_fidelity sim_boundary horus_sim
+	      sim_fidelity sim_boundary sim_hbs sim_hfd sim_cancel sim_comp horus_sim
 	rm -f *.vcd fidelity_benchmark.csv fidelity_plot.png fidelity_error_plot.png
+	rm -f HBS_CORE_*.log HFD_TEST_*.log HORUS_WEAKNESS_MAP.log
+	rm -f HBS11_POLICY_VALIDATION.csv HBS11_POLICY_SUMMARY.log sim_hbs11
+	rm -f HBS12_ARITHMETIC_BOUNDARY.csv HBS12_SUMMARY.log sim_hbs12
 	@echo "Cleaned generated binaries and artifacts."
 
 .PHONY: help
@@ -154,5 +231,10 @@ help:
 	@echo "  make sim_c        C-model 10M-iteration proof"
 	@echo "  make analysis     Python precision analysis"
 	@echo "  make sim_boundary Boundary-stress testbench"
-	@echo "  make clean        Remove build artifacts"
+	@echo "  make failure_domain HORUS failure-domain analysis (6 tests)"
+	@echo "  make hbs_stability  HBS core failure-mapping suite (6 tests)"
+	@echo "  make cancel_analysis  TEST 9 cancellation residual study"
+	@echo "  make composition_analysis TEST 10 composition stress study"
+	@echo "  make hbs11            HBS-11 execution policy validation suite"
+	@echo "  make hbs12            HBS-12 arithmetic boundary mapping suite"
 	@echo ""

@@ -118,6 +118,12 @@ module horus_top (
     input  wire        result_ack,    // Pulse: host has latched row_out_*; return to IDLE
     output wire        data_valid,    // Level: row_out_0..3 are stable and valid
 
+    // ── Depth-Monitor configuration ───────────────────────────────────────────
+    // max_depth : 6-bit MAC-depth threshold; 0 = disabled.
+    // depth_reset_out : 1-cycle pulse notification to host when boundary fires.
+    input  wire [5:0]  max_depth,
+    output wire        depth_reset_out,
+
     // ── Left-boundary Row Activation inputs  (13-bit NFE encoded) ────────────
     input  wire [12:0] row_act_0,     // Activation entering row 0 from the left
     input  wire [12:0] row_act_1,     // Activation entering row 1 from the left
@@ -156,6 +162,8 @@ module horus_top (
     // =========================================================================
     wire w_accum_clr;
     wire w_accum_en;
+    wire w_depth_reset;
+    assign depth_reset_out = w_depth_reset;
 
     // =========================================================================
     // u_ctrl : horus_controller
@@ -172,9 +180,15 @@ module horus_top (
         .start_compute  (start_compute),
         .result_ack     (result_ack),
 
+        // ── Depth-Monitor configuration ──────────────────────────────────────
+        .max_depth      (max_depth),
+
         // ── Control fabric outputs → u_array control inputs ─────────────────
         .accum_clr      (w_accum_clr),
         .accum_en       (w_accum_en),
+
+        // ── Depth-Monitor output ─────────────────────────────────────────────
+        .depth_reset    (w_depth_reset),
 
         // ── Status flag → top-level port ────────────────────────────────────
         .data_valid     (data_valid)
