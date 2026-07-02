@@ -392,3 +392,21 @@ hbs_c9: sim_hbs_c9
 	@echo "         hbs_c9_attractor_timeline.png  hbs_c9_s1d_e_sawtooth.png"
 	@echo "         hbs_c9_tti_distribution.png  hbs_c9_phase_trajectory.png"
 	@echo ""
+
+# ── HBS-C10: Predictive Validation ───────────────────────────────────────────
+# 20 unseen workloads × 350 cycles = 7,000 cycles on horus_system DUT.
+# Predictions generated analytically BEFORE simulation CSV is read.
+sim_hbs_c10: $(TB)/tb_hbs_c10_predictive_validation.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+hbs_c10: sim_hbs_c10
+	@echo ""
+	@echo "Running HBS-C10 Predictive Validation..."
+	$(VVP) sim_hbs_c10
+	@echo ""
+	$(PYTHON) analyze_hbs_c10_predictive_validation.py
+	@echo ""
+	@echo "Outputs: HBS_C10_PREDICTIONS.csv  HBS_C10_SINGULARITY.csv"
+	@echo "         HBS_C10_SUMMARY.log"
+	@echo "         docs/HBS_C10_RESULTS.md  docs/HORUS_PREDICTIVE_VALIDATION.md"
+	@echo ""
