@@ -30,7 +30,7 @@ SRC_SYSTOLIC := $(RTL)/horus_systolic_array.v $(RTL)/horus_controller.v \
                 $(RTL)/horus_input_buffer.v $(RTL)/horus_top.v
 
 # =============================================================================
-.PHONY: all hbs11 hbs12 hbs13 hbs14 hbs_c2
+.PHONY: all hbs11 hbs12 hbs13 hbs14 hbs_c2 hbs_c5
 all: sim_mesh
 	@echo ""
 	@echo "Running Horus Mesh Testbench (7/7 tests expected)..."
@@ -237,6 +237,10 @@ clean:
 	rm -f HBS_C2_LIVE_SIM.csv HBS_C2_LIVE_SUMMARY.log sim_hbs_c2 \
 	      hbs_c2_state_space_ascii.txt hbs_c2_e_density.png \
 	      hbs_c2_uf_ovf_timeline.png hbs_c2_accum_drift.png hbs_c2_mode_region_hm.png
+	rm -f HBS_C5_KERNEL_STRESS.csv HBS_C5_KERNEL_SUMMARY.log sim_hbs_c5 \
+	      hbs_c5_mode_surface_classA.png hbs_c5_mode_surface_classB.png \
+	      hbs_c5_mode_surface_classC.png hbs_c5_mode_surface_classD.png \
+	      hbs_c5_mode_surface_all.png hbs_c5_action_manifold.png
 	@echo "Cleaned generated binaries and artifacts."
 
 .PHONY: help
@@ -259,6 +263,7 @@ help:
 	@echo "  make hbs13            HBS-13 boundary gap characterization suite"
 	@echo "  make hbs14            HBS-14 end-to-end system consistency suite"
 	@echo "  make hbs_c2           HBS-C2 live system observation harness"
+	@echo "  make hbs_c5           HBS-C5 C4 kernel decision surface stress-test"
 
 # HBS-14 end-to-end system consistency: horus_system + horus_systolic_array
 sim_hbs14: $(TB)/tb_hbs14_system_integration.v $(SRC_CORE) $(RTL)/horus_systolic_array.v
@@ -288,4 +293,22 @@ hbs_c2: sim_hbs_c2
 	@echo "Outputs: HBS_C2_LIVE_SIM.csv  HBS_C2_LIVE_SUMMARY.log"
 	@echo "         hbs_c2_e_density.png  hbs_c2_uf_ovf_timeline.png"
 	@echo "         hbs_c2_accum_drift.png  hbs_c2_mode_region_hm.png"
+	@echo ""
+
+# ── HBS-C5: C4 Kernel Decision Surface Exhaustive Stress-Test ────────────────
+# Pure combinational testbench — no RTL DUT, no horus_system import.
+# Tests all 4 × 64 × 32 = 8,192 kernel input combinations.
+sim_hbs_c5: $(TB)/tb_hbs_c5_kernel_stress.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+hbs_c5: sim_hbs_c5
+	@echo ""
+	@echo "Running HBS-C5 C4 Kernel Decision Surface Stress-Test..."
+	$(VVP) sim_hbs_c5
+	@echo ""
+	$(PYTHON) analyze_hbs_c5_kernel_stress.py
+	@echo ""
+	@echo "Outputs: HBS_C5_KERNEL_STRESS.csv  HBS_C5_KERNEL_SUMMARY.log"
+	@echo "         hbs_c5_mode_surface_classA/B/C/D.png"
+	@echo "         hbs_c5_mode_surface_all.png  hbs_c5_action_manifold.png"
 	@echo ""

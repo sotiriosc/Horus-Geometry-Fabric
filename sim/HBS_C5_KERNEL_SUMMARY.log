@@ -1,0 +1,157 @@
+========================================================================
+  HBS-C5: HORUS C4 KERNEL DECISION SURFACE STRESS-TEST
+  Exhaustive evaluation: 4 × 64 × 32 = 8,192 states
+========================================================================
+
+────────────────────────────────────────────────────────────────────────
+  A. KERNEL COLLAPSE RATE
+     (% of states mapping to INSERT_EPOCH_BOUNDARY)
+────────────────────────────────────────────────────────────────────────
+
+  States → INSERT_EPOCH_BOUNDARY:   3840 /  8192
+  Collapse rate:                    46.875%
+
+  Expected: depth>16 cases = 4 × 64 × 15 = 3840  (46.875%)
+  Match: YES
+
+────────────────────────────────────────────────────────────────────────
+  B. CLASS ENTROPY UNDER DEPTH OVERRIDE
+────────────────────────────────────────────────────────────────────────
+
+  Depth-override states (depth>16): 3840
+  Unique (mode,action) outputs:      1
+  Output entropy H(mode,action|depth>16): 0.000000 bits
+  Outputs observed under override:   [('010', 'INSERT_EPOCH_BOUNDARY')]
+  Class distribution:
+    CLASS_A:   960  (25.0%)
+    CLASS_B:   960  (25.0%)
+    CLASS_C:   960  (25.0%)
+    CLASS_D:   960  (25.0%)
+
+  Interpretation:
+    H=0 → all 3840 depth-override states map to identical output
+    Class is irrelevant when depth>16: CONFIRMED
+
+────────────────────────────────────────────────────────────────────────
+  C. BOUNDARY DISCONTINUITY SHARPNESS
+────────────────────────────────────────────────────────────────────────
+
+  E=14→15:
+    Mode changes:   0/4 classes
+    Action changes: 0/4 classes
+    Step function:  NO — smeared
+      CLASS_A: mode 011 = 011    action SENTINEL_OR_ = SENTINEL_OR_
+      CLASS_B: mode 010 = 010    action NORMALIZE_TH = NORMALIZE_TH
+      CLASS_C: mode 010 = 010    action NORMALIZE_TH = NORMALIZE_TH
+      CLASS_D: mode 010 = 010    action NORMALIZE_TH = NORMALIZE_TH
+
+  E=15→16:
+    Mode changes:   2/4 classes
+    Action changes: 4/4 classes
+    Step function:  YES
+      CLASS_A: mode 011 → 000    action SENTINEL_OR_ → EXECUTE
+      CLASS_B: mode 010 = 010    action NORMALIZE_TH → NORMALIZE_TH
+      CLASS_C: mode 010 → 000    action NORMALIZE_TH → EXECUTE
+      CLASS_D: mode 010 = 010    action NORMALIZE_TH → NORMALIZE_TH
+
+  E=47→48:
+    Mode changes:   4/4 classes
+    Action changes: 4/4 classes
+    Step function:  YES
+      CLASS_A: mode 000 → 011    action      EXECUTE → CLAMP
+      CLASS_B: mode 010 → 011    action NORMALIZE_TH → CLAMP
+      CLASS_C: mode 000 → 011    action      EXECUTE → CLAMP
+      CLASS_D: mode 010 → 011    action NORMALIZE_TH → CLAMP
+
+  E=48→49:
+    Mode changes:   0/4 classes
+    Action changes: 0/4 classes
+    Step function:  NO — smeared
+      CLASS_A: mode 011 = 011    action        CLAMP = CLAMP
+      CLASS_B: mode 011 = 011    action        CLAMP = CLAMP
+      CLASS_C: mode 011 = 011    action        CLAMP = CLAMP
+      CLASS_D: mode 011 = 011    action        CLAMP = CLAMP
+
+  Mode Symmetry Index (collapse vs saturation boundary): 0.500
+    (1.0 = symmetric, 0.0 = fully asymmetric)
+    Collapse boundary:   2/4 classes change mode
+    Saturation boundary: 4/4 classes change mode
+    Assessment: ASYMMETRIC
+
+────────────────────────────────────────────────────────────────────────
+  D. MODE SURFACE TOPOLOGY  (summary; see heatmaps for visual)
+────────────────────────────────────────────────────────────────────────
+
+  CLASS_A:
+    mode=000:   544 / 2048  ( 26.6%)  ██████████
+    mode=010:   960 / 2048  ( 46.9%)  ██████████████████
+    mode=011:   544 / 2048  ( 26.6%)  ██████████
+  CLASS_B:
+    mode=000:   408 / 2048  ( 19.9%)  ███████
+    mode=010:  1368 / 2048  ( 66.8%)  ██████████████████████████
+    mode=011:   272 / 2048  ( 13.3%)  █████
+  CLASS_C:
+    mode=000:   544 / 2048  ( 26.6%)  ██████████
+    mode=010:  1232 / 2048  ( 60.2%)  ████████████████████████
+    mode=011:   272 / 2048  ( 13.3%)  █████
+  CLASS_D:
+    mode=000:   408 / 2048  ( 19.9%)  ███████
+    mode=010:  1368 / 2048  ( 66.8%)  ██████████████████████████
+    mode=011:   272 / 2048  ( 13.3%)  █████
+
+────────────────────────────────────────────────────────────────────────
+  E. ACTION MANIFOLD COMPRESSION
+────────────────────────────────────────────────────────────────────────
+
+  Total states:         8192
+  Unique (mode,action): 6  of 18 possible
+  Reduction ratio:      1 / 1365  (6/8192 = 0.0732%)
+
+  Unique pairs and state counts:
+    (010, INSERT_EPOCH_BOUNDARY         )   3840 states  ▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪
+    (000, EXECUTE                       )   1904 states  ▪▪▪▪▪▪▪▪▪▪▪▪▪
+    (011, CLAMP                         )   1088 states  ▪▪▪▪▪▪▪
+    (010, NORMALIZE_THEN_ROUTE          )    816 states  ▪▪▪▪▪
+    (011, SENTINEL_OR_SKIP              )    272 states  ▪
+    (010, NORMALIZE_THEN_EXECUTE        )    272 states  ▪
+
+========================================================================
+  REQUIRED VALIDATION QUESTIONS (5/5)
+========================================================================
+
+  Q1: Does any region produce mixed mode outputs within a single E band?
+  Answer: YES — some E values show multiple modes across classes (class differentiation in TRANSITION/COLLAPSE)
+
+  Q2: Does depth override erase all class dependence completely?
+  Answer: YES — depth override completely erases class dependence; all classes → (010, INSERT_EPOCH_BOUNDARY)
+
+  Q3: Are transition boundaries symmetric or asymmetric under stress?
+  Answer: ASYMMETRIC — collapse boundary: 2/4 classes change mode; saturation boundary: 4/4 classes change mode. Both are step functions (no smearing), but different mode-change magnitudes.
+
+  Q4: Is there any observable case where COLLAPSE ≠ SATURATION in action semantics?
+  Answer: YES — COLLAPSE and SATURATION produce distinct action semantics. COLLAPSE: [('010', 'NORMALIZE_THEN_ROUTE'), ('011', 'SENTINEL_OR_SKIP')]. SATURATION: [('011', 'CLAMP')].
+
+  Q5: Does the kernel behave like a partition function or a rule cascade?
+  Answer: PARTITION FUNCTION — 8192 states partitioned into 6 non-overlapping output classes. Each input maps to exactly one output. No cascading: classification is a pure function of (class, E, depth). The kernel is a finite partition of 3-dimensional state space.
+
+========================================================================
+  C4 KERNEL TOPOLOGY CLASSIFICATION (HBS-C5)
+========================================================================
+
+  Total states evaluated:    8192
+  Unique decision outputs:   6
+  Kernel collapse rate:      46.875%
+  Output entropy (override): 0.000000 bits
+  Boundary type:             STEP FUNCTION (both boundaries)
+  Boundary symmetry:         ASYMMETRIC (MSI=0.500)
+
+  VERDICT: PARTITION FUNCTION
+    The C4 kernel partitions 8,192 input states into 6 non-overlapping
+    output classes. It is stateless, deterministic, and total.
+    Depth override forms a single connected manifold (3,840 states,
+   46.9% of space) with uniform output (010,INSERT_EPOCH_BOUNDARY).
+    Boundary transitions are step functions with zero smearing.
+    Class information is erased completely under depth override.
+
+  (All figures derived from HBS_C5_KERNEL_STRESS.csv.)
+========================================================================
