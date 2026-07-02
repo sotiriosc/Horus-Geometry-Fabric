@@ -510,3 +510,20 @@ hbs_c17: sim_hbs_c17
 	@echo "Outputs: HBS_C17_FEEDBACK_CLOSURE.csv  HBS_C17_SUMMARY.log"
 	@echo "         docs/HBS_C17_FEEDBACK_CLOSURE.md  docs/HORUS_CAUSAL_CLOSURE_MAP.md"
 	@echo ""
+
+# ── HBS-C19: Closure Falsification Under Cross-Domain Coupling ────────────────
+# 5 adversarial injection regimes × 2,000 cycles = 10,000 cycles.
+# Attempts to falsify the HBS-C18 System Closure Theorem via forced coupling.
+sim_hbs_c19: $(TB)/tb_hbs_c19_closure_falsification.v $(SRC_CORE)
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+hbs_c19: sim_hbs_c19
+	@echo ""
+	@echo "Running HBS-C19 Closure Falsification Suite..."
+	$(VVP) sim_hbs_c19
+	@echo ""
+	$(PYTHON) analyze_hbs_c19_closure_falsification.py
+	@echo ""
+	@echo "Outputs: HBS_C19_CLOSURE_RESULTS.csv  HBS_C19_SUMMARY.log"
+	@echo "         docs/HBS_C19_RESULTS.md  docs/HORUS_CLOSURE_STABILITY_REPORT.md"
+	@echo ""

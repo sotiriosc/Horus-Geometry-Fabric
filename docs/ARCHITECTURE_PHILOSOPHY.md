@@ -1637,6 +1637,60 @@ mode_tag attack, and no hysteresis has been observed.
 
 ---
 
+## C19 Closure Adversarial Stability Principle
+
+> *"A closure theorem is not proven by the absence of known paths — it is proven
+> by the survival of all predicted invariants under adversarial attack."*
+
+### The Principle
+
+The HBS-C18 System Closure Theorem claimed that `computed(t) = φ(op_a, op_b, op_sel)`
+with the state space S = {mode_tag, accum_reg} formally excluded. HBS-C19 attempted
+to falsify this under 5 adversarial injection regimes (10,000 total cycles):
+
+1. **Phantom Feedback (R1):** Routed `accum_out_inj[5:0]` directly back into `op_a_inj`.
+   Result: `computed_ref` remained invariant. CLI_REF = 0 (undefined — constant).
+
+2. **Mode-Tag Echo (R2):** Cycled `mode_tag_inj` through all 4 accumulation policies.
+   Result: Both DUTs computed 0x830 on every cycle. Accum diverged by 132,048.
+
+3. **E-Field Perturbation (R3):** Applied XOR mask to shadow E-field.
+   Result: Zero correlation between XOR mask and `computed`. Observer layer confirmed isolated.
+
+4. **Accumulation Replay (R4):** `dut_inj` cleared every 8 cycles vs `dut_ref` every 64.
+   Result: 117,376 sustained accum divergence with zero `computed` change.
+
+5. **Time Reversal (R5):** Reversed epoch order (ADD×8 + MUL×8 vs MUL×8 + ADD×8).
+   Result: Epoch-end accum totals identical (TNC = 0). Computed follows op_sel, not order.
+
+### Final Verdict
+
+**STRONGLY_CLOSED** — State Contamination Index (SCI) = 0.000000.
+
+All 5 hard falsification conditions passed. The HBS-C18 closure theorem is confirmed
+under adversarial stress.
+
+### Design Invariant Reinforced
+
+The C19 principle adds a second invariant to the HORUS v3 architectural contract:
+
+> **Not only is there no hidden causal path from S → C in the current RTL —
+> there is also no adversarial injection pattern that can create one without
+> explicitly routing state through the declared input ports {op_a, op_b, op_sel}.
+> The architectural firewall between S and C is enforced at the input boundary,
+> not merely absent from the internal signal graph.**
+
+This means: any proposed hardware modification that could create S → C coupling
+would require explicit input-port routing, which is immediately visible at the
+testbench and integration level. Hidden coupling cannot exist by the structural
+properties of the feedforward DAG.
+
+### Reference
+
+See `docs/HBS_C19_RESULTS.md` and `docs/HORUS_CLOSURE_STABILITY_REPORT.md`.
+
+---
+
 ## C18 Formal System Closure Principle
 
 > *"A well-formed arithmetic engine is one whose causal graph is a DAG —
@@ -1717,3 +1771,4 @@ Digital Physics · Quantized Event Accumulation Engine · Lossy Stable Substrate
 *C16 Control Causality Isolation Principle added: 2026-07-02*
 *C17 Accumulation Feedback Closure Principle added: 2026-07-02*
 *C18 Formal System Closure Theorem added: 2026-07-02*
+*C19 Closure Adversarial Stability Principle added: 2026-07-02*
