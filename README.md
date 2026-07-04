@@ -1,41 +1,64 @@
-# Horus NFE
+# Horus Geometry Fabric
 
-**A Deterministic, Quantized Event Accumulation Engine**
+**Geometry-Based Logic Fabric — Exploration & Development**
 
-Horus NFE is an open-hardware inference substrate built around a 13-bit Native
-Fractional Engine (NFE), a systolic MAC mesh, and per-tile Quantized Feature
-Event Counters. It targets **high-throughput, stable, saturating inference**
-for edge AI workloads — not IEEE-754 scientific arithmetic.
+This repository is the dedicated workspace for exploring and developing a
+**geometry-based logic fabric** built on the Horus Native Fractional Engine (NFE)
+foundation. It was forked from [Horus-NFE-Research](https://github.com/sotiriosc/Horus-NFE-Research)
+to preserve the verified NFE substrate while pursuing a new architectural direction:
+treating computation as **coordinate geometry** rather than conventional bit-level
+logic alone.
 
 **License:** [CERN-OHL-S-2.0](LICENSE)
 
 ---
 
-## Status
+## Mission
+
+Horus Geometry Fabric investigates:
+
+- **Geometric coordinate systems** for representing and transforming logic states
+- **Observer-frame invariants** vs frame-dependent projections (see HBS-C23 findings)
+- **Fabric-level composition** — how NFE tiles, attractor regions, and accumulation
+  manifolds compose into larger inference structures
+- **Logic-as-geometry** — encoding decision boundaries, routing, and state transitions
+  as geometric regions rather than purely symbolic gates
+
+The parent NFE research repo remains unchanged. This repo carries the full
+verified RTL, simulation infrastructure, and HBS verification history as a
+starting baseline.
+
+---
+
+## Relationship to Horus NFE Research
+
+| Repository | Role |
+|------------|------|
+| [Horus-NFE-Research](https://github.com/sotiriosc/Horus-NFE-Research) | Original NFE engine, MAC mesh, HBS-C7–C23 verification |
+| **Horus-Geometry-Fabric** (this repo) | Geometry-based logic fabric exploration & development |
+
+**Inherited baseline (verified):**
 
 | Layer | Status |
 |-------|--------|
-| **Core MAC/NFE** | Verified — ADD/SUB/MUL unit tests, C-model vs FP64, Bias-32 hidden-bit encoding |
-| **Accumulation stability** | Verified — floor, saturate, mixed tiny/large propagate (`tb_boundary_stress`) |
-| **Composition geometry analysis** | Verified — stable in shallow chains / deterministic in deep regime ([docs/COMPOSITION_GEOMETRY.md](docs/COMPOSITION_GEOMETRY.md)) |
-| **Scaling (16-tile)** | In-Development — 4×4 systolic + 2×2 mesh sim-verified; 16-tile mesh in progress |
-
-RTL simulation: **26/26 tests pass** (`make test`). Synthesis constraints target
-250 MHz on Xilinx Ultrascale+ / Intel Agilex (timing not closed on silicon).
+| Core MAC/NFE | Verified — ADD/SUB/MUL, C-model vs FP64 |
+| Causal closure (C18–C22) | Proved — arithmetic frame-independent |
+| Observer-frame relativity (C23) | Proved — attractors are frame-dependent labels |
+| Composition geometry | Documented — [docs/COMPOSITION_GEOMETRY.md](docs/COMPOSITION_GEOMETRY.md) |
 
 ---
 
 ## Repository Layout
 
 ```
-horus_engine/
+horus_geometry_fabric/
 ├── README.md           ← this file
 ├── LICENSE
 ├── Makefile            → delegates to sim/
 ├── rtl/                ← synthesizable Verilog (horus_nfe, mesh, systolic)
 ├── tb/                 ← Icarus Verilog testbenches
 ├── sim/                ← Makefile, C-model, analysis scripts, build artifacts
-└── docs/               ← architecture, numerics, benchmarks, FPGA guide
+└── docs/               ← architecture, numerics, HBS verification, geometry notes
 ```
 
 ---
@@ -43,100 +66,46 @@ horus_engine/
 ## Quick Start
 
 ```bash
-# Full RTL regression (26/26)
+# Full RTL regression
 make test
 
-# 1024-cycle deep-chain fidelity benchmark + plots
-make fidelity
-
-# C-model statistical proof (10M iterations)
-make sim_c
-
-# Python encoding / adversarial analysis
-make analysis
-
-# Cancellation + composition geometry (Tests 9–10)
-make cancel_analysis
+# Composition geometry analysis
 make composition_analysis
+
+# HBS verification suites (C19–C23)
+cd sim && make hbs_c19   # closure falsification
+cd sim && make hbs_c20   # boundary geometry
+cd sim && make hbs_c21   # feedback coupling
+cd sim && make hbs_c22   # exogenous injection
+cd sim && make hbs_c23   # observer decoupling
 ```
 
-All simulation targets run from `sim/`; the root `Makefile` forwards to it.
-
-**Requirements:** Icarus Verilog ≥ 11, GCC, Python 3.8+ (matplotlib for fidelity plots).
+**Requirements:** Icarus Verilog ≥ 11, GCC, Python 3.8+
 
 ---
 
-## Documentation
+## Key Documentation
 
 | Document | Description |
 |----------|-------------|
-| [docs/COMPOSITION_GEOMETRY.md](docs/COMPOSITION_GEOMETRY.md) | Deterministic residual manifold; Tests 9–10; Compiler/QAT bias-table guide |
-| [docs/ARCHITECTURE_PHILOSOPHY.md](docs/ARCHITECTURE_PHILOSOPHY.md) | Digital Physics paradigm; QEA identity; IEEE-754 contrast |
-| [docs/DESIGN_LIMITATIONS.md](docs/DESIGN_LIMITATIONS.md) | Architectural trade-offs; fidelity vs dynamic range; v4 roadmap |
-| [docs/NUMERICS.md](docs/NUMERICS.md) | Bias-32 encoding reference and canonical constants |
-| [docs/DATASHEET.md](docs/DATASHEET.md) | Port lists, timing, and module integration |
-| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Benchmark methodology and measured results |
-| [docs/FPGA_GUIDE.md](docs/FPGA_GUIDE.md) | Vivado/Quartus constraints and bring-up |
-| [docs/NOTICE.md](docs/NOTICE.md) | Attribution and third-party notices |
+| [docs/GEOMETRY_FABRIC.md](docs/GEOMETRY_FABRIC.md) | Program charter and research tracks |
+| [docs/ARCHITECTURE_PHILOSOPHY.md](docs/ARCHITECTURE_PHILOSOPHY.md) | Digital Physics paradigm; C18–C23 principles |
+| [docs/COMPOSITION_GEOMETRY.md](docs/COMPOSITION_GEOMETRY.md) | Deterministic residual manifold |
+| [docs/HORUS_SYSTEM_CLOSURE_THEOR.md](docs/HORUS_SYSTEM_CLOSURE_THEOR.md) | Formal closure theorem (C18) |
+| [docs/HBS_C23_RESULTS.md](docs/HBS_C23_RESULTS.md) | Observer-frame relativity (starting insight) |
 
 ---
 
-## Fidelity Analysis
+## Development Direction
 
-A 1024-cycle **deep-chain accumulation** stress test (`tb/tb_fidelity_benchmark.v`)
-injects small random fractional deltas (ADD_FRAC) with feedback re-quantization
-and compares the hardware running state against an ideal FP64 golden model.
+Starting from the C23 result — *attractors are real in the frame that defines them* —
+this repo will explore:
 
-| Milestone | Cycle | Behavior |
-|-----------|------:|----------|
-| **1% divergence** | **278** | Hardware running state departs >1% from FP64 ideal |
-| **Saturation plateau** | **384** | Horus output clamps (~4.26×10⁹); FP64 golden continues growing |
-
-Mean relative error over the full chain: **~3.94%**. This curve is the
-efficiency-vs-fidelity trade-off: single-cycle MAC, bounded 13-bit dynamic range,
-and saturating arithmetic vs unbounded FP64 precision.
-
-Reproduce:
-
-```bash
-make fidelity
-# → sim/fidelity_benchmark.csv
-# → sim/fidelity_plot.png
-# → sim/fidelity_error_plot.png
-```
-
-See [docs/DESIGN_LIMITATIONS.md §2](docs/DESIGN_LIMITATIONS.md#2-fidelity-analysis-vs-dynamic-range)
-for architectural interpretation.
+1. **Fabric coordinate systems** — alternative E-field / manifold projections for logic routing
+2. **Invariant cores** — what survives coordinate destruction (arithmetic closure)
+3. **Geometric composition operators** — tile-to-tile transforms beyond systolic MAC
+4. **Observer-aware design** — explicit separation of computation vs classification layers
 
 ---
 
-## RTL Overview
-
-| Module | Role |
-|--------|------|
-| `horus_nfe` | 13-bit MAC core — ADD/SUB/MUL, Thoth Rollover, Guard-B SUB pipeline |
-| `horus_system` | NFE + power-gate tile wrapper |
-| `horus_systolic_array` | 4×4 output-stationary PE grid |
-| `horus_mesh_top` | 2×2 tile mesh with XY router |
-| `horus_top` | AXI4-Stream host interface + controller |
-
-Format: **13-bit NFE v3** — 1 sign + 6 biased exponent (Bias-32) + 6 fraction
-with implicit leading bit. See [docs/NUMERICS.md](docs/NUMERICS.md).
-
----
-
-## Citation
-
-```bibtex
-@misc{horus_nfe_2026,
-  title        = {Horus NFE: A Deterministic, Quantized Event Accumulation Engine},
-  author       = {Horus (Native Fractional Engine project)},
-  year         = {2026},
-  howpublished = {Open Hardware, CERN-OHL-S-2.0},
-  note         = {RTL, C-model, and documentation publicly available}
-}
-```
-
----
-
-*Horus NFE · Quantized Event Accumulation Engine · v3 (Bias-32)*
+*Horus Geometry Fabric · Geometry-Based Logic Fabric · v0.1 (forked from NFE v3)*
