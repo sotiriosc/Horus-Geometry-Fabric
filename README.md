@@ -63,6 +63,58 @@ horus_geometry_fabric/
 
 ---
 
+## NFE Deployment Review (July 2026)
+
+A structured C-model review asked what actually affects **real CLASS_A workloads**
+(GEMM, conv, attention) on the documented hardware path — as opposed to synthetic
+long-chain stress tests.
+
+**Full write-up:** [docs/NFE_DEPLOYMENT_REVIEW.md](docs/NFE_DEPLOYMENT_REVIEW.md)  
+**Run the tests:** [sim/README.md](sim/README.md) → `cd sim && make deployment_review`
+
+### Why we ran it
+
+The NFE verification suite (HBS-C5–C23) proves kernel logic and causal closure. It does
+not directly answer deployment questions: dual-path matvec cost, whether ABMP snapshots are
+correct, whether the 1024-cycle fidelity benchmark models production, or whether block
+scaling / compensated accumulation are worth the hardware.
+
+### What we built
+
+| Artifact | Role |
+|----------|------|
+| `sim/nfe_matvec.c` | 8×8 baseline — op counts, weighted cost, 0.383% mean error |
+| `sim/nfe_matvec2.c` | Dual-path routed matvec (anchor zone E∈[28..35]) |
+| `sim/abmp_epoch_test.c` | ABMP snapshot vs true sum at depth=16 |
+| `sim/abmp_blast_radius.c` | Trigger characterization + K=8 accuracy |
+| `sim/abmp_k128_test.c` | HBS-1 K=128 reduction (7 epoch boundaries) |
+| `sim/abmp_norm_fires.c` | Forced normalization when E<20 at boundary |
+
+### Headline findings
+
+1. **ABMP off-by-one is real but isolated** — `accum_out` trails `accum_reg` by 1 cycle;
+   snapshot at epoch close drops one MAC from the *integer codeword* sum. The NFE **`result`**
+   dot-product path is unaffected (0.000% measured delta at K=8, K=128, and forced-norm cases).
+
+2. **Epoch trigger is a fixed counter** — C4 HC-5: `depth > 16` → `INSERT_EPOCH_BOUNDARY`.
+   K≤16 reductions never fire. K=128 fires 7 times at depth=17.
+
+3. **1024-cycle fidelity benchmark is a stress test** — continuous accumulator with feedback;
+   not epoch-reset CLASS_A. Divergence there does not predict real GEMM behavior.
+
+4. **Saturation unreachable in 16-step epochs** — with documented operand ranges (E_export ≤ 36),
+   Thoth rollover is correct renormalization, not a deployment risk.
+
+5. **Block scaling / compensation** — no accuracy win on bounded epochs; no energy breakeven
+   for matvec once E_block dmov is priced in.
+
+**Bottom line for deployment:** The live accuracy budget is inherent NFE quantization
+(~0.38% mean on the characterized 8×8 matvec). Fix the `accum_out` sampling contract if
+any consumer treats the snapshot as a compute input — not because it affects standard GEMM
+accuracy.
+
+---
+
 ## Quick Start
 
 ```bash
@@ -71,6 +123,9 @@ make test
 
 # Composition geometry analysis
 make composition_analysis
+
+# NFE deployment review (C-model matvec + ABMP tests)
+cd sim && make deployment_review
 
 # HBS verification suites (C19–C23)
 cd sim && make hbs_c19   # closure falsification
@@ -93,6 +148,8 @@ cd sim && make hbs_c23   # observer decoupling
 | [docs/COMPOSITION_GEOMETRY.md](docs/COMPOSITION_GEOMETRY.md) | Deterministic residual manifold |
 | [docs/HORUS_SYSTEM_CLOSURE_THEOR.md](docs/HORUS_SYSTEM_CLOSURE_THEOR.md) | Formal closure theorem (C18) |
 | [docs/HBS_C23_RESULTS.md](docs/HBS_C23_RESULTS.md) | Observer-frame relativity (starting insight) |
+| [docs/NFE_DEPLOYMENT_REVIEW.md](docs/NFE_DEPLOYMENT_REVIEW.md) | July 2026 deployment review — ABMP, matvec, block scaling |
+| [sim/README.md](sim/README.md) | C-model review tests — build & run |
 
 ---
 

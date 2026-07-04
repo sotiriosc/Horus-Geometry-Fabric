@@ -7,6 +7,13 @@ sim/fidelity_benchmark.csv
 sim/fidelity_plot.png
 sim/fidelity_error_plot.png
 sim/nfe_sim
+sim/nfe_matvec
+sim/nfe_matvec2
+sim/abmp_epoch_test
+sim/abmp_blast_radius
+sim/abmp_k128_test
+sim/abmp_norm_fires
+sim/debug.log
 sim/tb_*
 HFD_TEST_*.log
 HORUS_WEAKNESS_MAP.log

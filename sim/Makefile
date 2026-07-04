@@ -197,6 +197,67 @@ sim_c: horus_sim
 horus_sim: horus_sim.c
 	$(CC) $(CFLAGS) -o $@ $< -lm
 
+# -----------------------------------------------------------------------------
+# NFE deployment review (July 2026) — C-model matvec + ABMP tests
+# See sim/README.md and docs/NFE_DEPLOYMENT_REVIEW.md
+# -----------------------------------------------------------------------------
+NFE_REVIEW_SRCS := nfe_matvec.c nfe_matvec2.c abmp_epoch_test.c \
+                   abmp_blast_radius.c abmp_k128_test.c abmp_norm_fires.c
+
+.PHONY: nfe_matvec nfe_matvec2 abmp_epoch_test abmp_blast_radius \
+        abmp_k128_test abmp_norm_fires deployment_review
+
+nfe_matvec: nfe_matvec.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+nfe_matvec2: nfe_matvec2.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+abmp_epoch_test: abmp_epoch_test.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+abmp_blast_radius: abmp_blast_radius.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+abmp_k128_test: abmp_k128_test.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+abmp_norm_fires: abmp_norm_fires.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+deployment_review: nfe_matvec nfe_matvec2 abmp_epoch_test abmp_blast_radius \
+                   abmp_k128_test abmp_norm_fires
+	@echo ""
+	@echo "======================================================"
+	@echo "  NFE Deployment Review — C-model test suite"
+	@echo "======================================================"
+	@echo ""
+	@echo "[1/6] 8×8 matvec baseline"
+	@echo "------------------------------------------------------"
+	./nfe_matvec
+	@echo ""
+	@echo "[2/6] Dual-path routed matvec"
+	@echo "------------------------------------------------------"
+	./nfe_matvec2
+	@echo ""
+	@echo "[3/6] ABMP epoch snapshot test"
+	@echo "------------------------------------------------------"
+	./abmp_epoch_test
+	@echo ""
+	@echo "[4/6] ABMP blast radius (K=8)"
+	@echo "------------------------------------------------------"
+	./abmp_blast_radius
+	@echo ""
+	@echo "[5/6] K=128 HBS-1 reduction"
+	@echo "------------------------------------------------------"
+	./abmp_k128_test
+	@echo ""
+	@echo "[6/6] Forced normalization at boundary"
+	@echo "------------------------------------------------------"
+	./abmp_norm_fires
+	@echo ""
+	@echo "Full findings: docs/NFE_DEPLOYMENT_REVIEW.md"
+
 .PHONY: fidelity
 fidelity: sim_fidelity
 	@echo ""
@@ -227,7 +288,9 @@ wave_nfe: sim_nfe
 .PHONY: clean
 clean:
 	rm -f sim_nfe sim_pgate sim_router sim_wrapper sim_mesh sim_system \
-	      sim_fidelity sim_boundary sim_hbs sim_hfd sim_cancel sim_comp horus_sim
+	      sim_fidelity sim_boundary sim_hbs sim_hfd sim_cancel sim_comp horus_sim \
+	      nfe_matvec nfe_matvec2 abmp_epoch_test abmp_blast_radius \
+	      abmp_k128_test abmp_norm_fires
 	rm -f *.vcd fidelity_benchmark.csv fidelity_plot.png fidelity_error_plot.png
 	rm -f HBS_CORE_*.log HFD_TEST_*.log HORUS_WEAKNESS_MAP.log
 	rm -f HBS11_POLICY_VALIDATION.csv HBS11_POLICY_SUMMARY.log sim_hbs11
@@ -262,6 +325,7 @@ help:
 	@echo "  make test         Full suite (26/26)"
 	@echo "  make fidelity     1024-cycle fidelity benchmark + plots"
 	@echo "  make sim_c        C-model 10M-iteration proof"
+	@echo "  make deployment_review  NFE matvec + ABMP review suite (6 tests)"
 	@echo "  make analysis     Python precision analysis"
 	@echo "  make sim_boundary Boundary-stress testbench"
 	@echo "  make failure_domain HORUS failure-domain analysis (6 tests)"
