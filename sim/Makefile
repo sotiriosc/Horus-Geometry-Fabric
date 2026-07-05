@@ -266,6 +266,181 @@ fidelity: sim_fidelity
 	@echo ""
 	$(PYTHON) analyze_fidelity.py
 
+# ── Second-source chain RTL confirmation (July 2026) ─────────────────────────
+# Runs y ← A·y feedback chains through horus_nfe.v (3 regimes × 256 cycles).
+# Confirms/falsifies predictions from sim/second_source_chain.py.
+# RTL path: PATH_NFE only (6-bit-quantized MUL, horus_nfe.v lines 494-536).
+# Output: SSC_CHAIN_TRACE.csv + analyze_second_source_chain.py verdicts.
+sim_ssc_chain: $(TB)/tb_second_source_chain.v $(RTL)/horus_nfe.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: ssc_chain
+ssc_chain: sim_ssc_chain
+	@echo ""
+	@echo "Running second-source chain RTL confirmation..."
+	@echo "  3 regimes (contractive/neutral/expansive) × 256 depth cycles"
+	$(VVP) sim_ssc_chain
+	@echo ""
+	$(PYTHON) analyze_second_source_chain.py
+	@echo ""
+	@echo "Output: SSC_CHAIN_TRACE.csv"
+
+# ── PATH_FAST Synthesis Comparison ───────────────────────────────────────────
+# Functional check: neutral-regime 256-cycle chain through horus_nfe_pf.v.
+# Requires: horus_nfe_pf.v in rtl/  (created by the PF synthesis campaign).
+# Synthesis: Sky130 HD TT 025C 1v80; yosys 0.9+.
+# Timing: not measured (OpenSTA not installed).
+
+YOSYS ?= yosys
+
+sim_pf_check: $(TB)/tb_horus_nfe_pf.v $(RTL)/horus_nfe_pf.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: pf_check
+pf_check: sim_pf_check
+	@echo ""
+	@echo "Running PATH_FAST functional check (neutral regime, 256 cycles)..."
+	$(VVP) sim_pf_check
+	@echo ""
+
+.PHONY: synth_baseline
+synth_baseline:
+	@echo ""
+	@echo "Synthesizing horus_nfe (baseline) against Sky130 HD..."
+	$(YOSYS) -Q synth_nfe_baseline.ys 2>&1 | tee SYNTH_NFE_BASELINE.log
+	@echo ""
+	@echo "Output: SYNTH_NFE_BASELINE.log"
+	@echo ""
+
+.PHONY: synth_pf
+synth_pf:
+	@echo ""
+	@echo "Synthesizing horus_nfe_pf (PATH_FAST) against Sky130 HD..."
+	$(YOSYS) -Q synth_nfe_pf.ys 2>&1 | tee SYNTH_NFE_PF.log
+	@echo ""
+	@echo "Output: SYNTH_NFE_PF.log"
+	@echo ""
+
+.PHONY: pf_comparison
+pf_comparison: pf_check synth_baseline synth_pf
+	@echo ""
+	@echo "PATH_FAST synthesis comparison complete."
+	@echo "See: docs/PF_SYNTHESIS_COMPARISON.md"
+	@echo ""
+
+# =============================================================================
+# Task 1 — System-level area denominator (horus_top: 16×horus_nfe + controller)
+# =============================================================================
+
+.PHONY: synth_top_baseline
+synth_top_baseline:
+	@echo ""
+	@echo "Synthesizing horus_top (baseline) against Sky130 HD..."
+	$(YOSYS) -Q synth_top_baseline.ys 2>&1 | tee SYNTH_TOP_BASELINE.log
+	@echo ""
+	@echo "Output: SYNTH_TOP_BASELINE.log"
+	@echo ""
+
+.PHONY: synth_top_pf
+synth_top_pf:
+	@echo ""
+	@echo "Synthesizing horus_top (PATH_FAST) against Sky130 HD..."
+	$(YOSYS) -Q synth_top_pf.ys 2>&1 | tee SYNTH_TOP_PF.log
+	@echo ""
+	@echo "Output: SYNTH_TOP_PF.log"
+	@echo ""
+
+.PHONY: sys_area
+sys_area: synth_top_baseline synth_top_pf
+	@echo ""
+	@echo "System-level area comparison complete."
+	@echo "See: SYNTH_TOP_BASELINE.log  SYNTH_TOP_PF.log"
+	@echo ""
+
+# =============================================================================
+# Task 2 — Accumulator width sweep (Python model)
+# =============================================================================
+
+.PHONY: width_sweep
+width_sweep:
+	@echo ""
+	@echo "Running PATH_FAST accumulator width sweep..."
+	$(PYTHON) pf_width_sweep.py
+	@echo ""
+
+# =============================================================================
+# Task 3 — Spot-check: RTL vs Python error trajectory
+# pf_check must run first to generate PF_RTL_TRACE.csv
+# =============================================================================
+
+sim_pf_trace: $(TB)/tb_horus_nfe_pf.v $(RTL)/horus_nfe_pf.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: pf_spotcheck
+pf_spotcheck: sim_pf_trace
+	@echo ""
+	@echo "Running PATH_FAST testbench (generates PF_RTL_TRACE.csv)..."
+	$(VVP) sim_pf_trace
+	@echo ""
+	@echo "Running Python spot-check overlay..."
+	$(PYTHON) pf_spotcheck.py
+	@echo ""
+
+# =============================================================================
+# de-risk bundle: Tasks 1-3 in order
+# =============================================================================
+
+.PHONY: pf_derisk
+pf_derisk: sys_area width_sweep pf_spotcheck
+	@echo ""
+	@echo "PATH_FAST de-risk tasks 1-3 complete."
+	@echo "See: docs/PF_DECISION_INPUTS.md (to be written after reviewing outputs)"
+	@echo ""
+
+# =============================================================================
+# PF18 — W=18 accumulator variant functional check and synthesis
+# =============================================================================
+
+sim_pf18_check: $(TB)/tb_horus_nfe_pf18.v $(RTL)/horus_nfe_pf18.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: pf18_check
+pf18_check: sim_pf18_check
+	@echo ""
+	@echo "Running PF18 functional check (neutral + expansive regime, 256 cycles)..."
+	$(VVP) sim_pf18_check
+	@echo ""
+
+.PHONY: synth_pf18
+synth_pf18:
+	@echo ""
+	@echo "Synthesizing horus_nfe_pf18 (W=18) against Sky130 HD..."
+	$(YOSYS) -Q synth_nfe_pf18.ys 2>&1 | tee SYNTH_NFE_PF18.log
+	@echo ""
+	@echo "Output: SYNTH_NFE_PF18.log"
+	@echo ""
+
+.PHONY: synth_top_pf18
+synth_top_pf18:
+	@echo ""
+	@echo "Synthesizing horus_top (PF18) against Sky130 HD..."
+	$(YOSYS) -Q synth_top_pf18.ys 2>&1 | tee SYNTH_TOP_PF18.log
+	@echo ""
+	@echo "Output: SYNTH_TOP_PF18.log"
+	@echo ""
+
+.PHONY: pf18_synth
+pf18_synth: synth_pf18 synth_top_pf18
+	@echo ""
+	@echo "PF18 synthesis complete. See: SYNTH_NFE_PF18.log  SYNTH_TOP_PF18.log"
+	@echo ""
+
+.PHONY: pf18
+pf18: pf18_check pf18_synth
+	@echo ""
+	@echo "PF18 tasks complete. See: docs/PF_DECISION_INPUTS.md"
+	@echo ""
+
 .PHONY: analysis
 analysis:
 	@echo "Running NFE precision analysis..."
@@ -291,7 +466,11 @@ clean:
 	      sim_fidelity sim_boundary sim_hbs sim_hfd sim_cancel sim_comp horus_sim \
 	      nfe_matvec nfe_matvec2 abmp_epoch_test abmp_blast_radius \
 	      abmp_k128_test abmp_norm_fires
-	rm -f *.vcd fidelity_benchmark.csv fidelity_plot.png fidelity_error_plot.png
+	rm -f *.vcd fidelity_benchmark.csv fidelity_plot.png fidelity_error_plot.png \
+	      sim_ssc_chain SSC_CHAIN_TRACE.csv
+	rm -f sim_pf_check SYNTH_NFE_BASELINE.log SYNTH_NFE_PF.log
+	rm -f sim_pf_trace PF_RTL_TRACE.csv
+	rm -f SYNTH_TOP_BASELINE.log SYNTH_TOP_PF.log
 	rm -f HBS_CORE_*.log HFD_TEST_*.log HORUS_WEAKNESS_MAP.log
 	rm -f HBS11_POLICY_VALIDATION.csv HBS11_POLICY_SUMMARY.log sim_hbs11
 	rm -f HBS12_ARITHMETIC_BOUNDARY.csv HBS12_SUMMARY.log sim_hbs12
@@ -662,4 +841,144 @@ hbs_c19: sim_hbs_c19
 	@echo ""
 	@echo "Outputs: HBS_C19_CLOSURE_RESULTS.csv  HBS_C19_SUMMARY.log"
 	@echo "         docs/HBS_C19_RESULTS.md  docs/HORUS_CLOSURE_STABILITY_REPORT.md"
+	@echo ""
+
+# ── PF18 Power Iteration: three-way convergence comparison ────────────────────
+sim_pf18_pi: $(TB)/tb_pf18_power_iteration.v $(RTL)/horus_nfe_pf18.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+sim_baseline_pi: $(TB)/tb_baseline_power_iteration.v $(RTL)/horus_nfe.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+pi_sims: sim_pf18_pi sim_baseline_pi
+	@echo ""
+	@echo "Running PF18 power iteration..."
+	$(VVP) sim_pf18_pi
+	@echo ""
+	@echo "Running Baseline power iteration..."
+	$(VVP) sim_baseline_pi
+	@echo ""
+	@echo "Outputs: PF18_POWER_ITER.csv  BASELINE_POWER_ITER.csv"
+	@echo ""
+
+power_iteration: pi_sims
+	@echo ""
+	@echo "Running three-way comparison analysis..."
+	$(PYTHON) analyze_power_iteration.py
+	@echo ""
+	@echo "Output: PI_THREE_WAY.csv  docs/PF18_POWER_ITERATION.md"
+	@echo ""
+
+# ── Normalization-Interval Sweep + RTL Confirmation ──────────────────────────
+norm_sweep:
+	@echo ""
+	@echo "Running normalization-interval sweep (Python, ~30 s)..."
+	$(PYTHON) norm_interval_sweep.py
+	@echo ""
+	@echo "Output: NORM_INTERVAL_SWEEP.csv"
+	@echo ""
+
+sim_norm_interval: $(TB)/tb_norm_interval.v $(RTL)/horus_nfe.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+norm_rtl: sim_norm_interval
+	@echo ""
+	@echo "Running RTL confirmation (3 cells)..."
+	$(VVP) sim_norm_interval
+	@echo ""
+	@echo "Output: NORM_INTERVAL_RTL.csv"
+	@echo ""
+
+norm_vs_pf18: norm_sweep norm_rtl
+	@echo ""
+	@echo "Normalization-vs-PF18 campaign complete."
+	@echo "Artifacts: NORM_INTERVAL_SWEEP.csv  NORM_INTERVAL_RTL.csv"
+	@echo "Doc: docs/NORM_VS_PF18.md"
+	@echo ""
+
+# ── Hopfield demo ─────────────────────────────────────────────────────────────
+hopfield_demo:
+	@echo ""
+	@echo "Running Hopfield Python demo (PATH_NFE baseline model)..."
+	$(PYTHON) hopfield_demo.py
+	@echo ""
+	@echo "Output: HOPFIELD_DEMO_PY.csv"
+	@echo ""
+
+sim_hopfield_recall: $(TB)/tb_hopfield_recall.v $(RTL)/horus_nfe.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+hopfield_rtl: sim_hopfield_recall
+	@echo ""
+	@echo "Running Hopfield RTL demo (horus_nfe baseline, ~5 s)..."
+	$(VVP) sim_hopfield_recall
+	@echo ""
+	@echo "Output: HOPFIELD_TRACE.csv"
+	@echo ""
+
+hopfield_check: hopfield_demo hopfield_rtl
+	@echo ""
+	@echo "Running Python vs RTL agreement analysis..."
+	$(PYTHON) analyze_hopfield.py
+	@echo ""
+
+hopfield_all: hopfield_check
+	@echo "Hopfield demo complete."
+	@echo "Artifacts: HOPFIELD_DEMO_PY.csv  HOPFIELD_TRACE.csv"
+	@echo "Doc: docs/HOPFIELD_DEMO.md"
+	@echo ""
+
+# ── expnorm sweep + horus_norm RTL tests + synthesis ─────────────────────────
+expnorm_sweep:
+	@echo "Running block-exponent normalizer sweep (Python)..."
+	$(PYTHON) expnorm_sweep.py
+	@echo ""
+	@echo "Artifacts: EXPNORM_SWEEP.csv  EXPNORM_GOLDEN.csv  EXPNORM_GOLDEN.dat"
+	@echo ""
+
+sim_horus_norm: $(TB)/tb_horus_norm.v $(RTL)/horus_norm.v $(RTL)/horus_nfe.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+horus_norm_rtl: sim_horus_norm
+	@echo ""
+	@echo "Running horus_norm unit + integration tests..."
+	$(VVP) sim_horus_norm
+	@echo ""
+
+synth_norm: synth_horus_norm.ys
+	@echo "Synthesising horus_norm (Sky130 HD)..."
+	$(YOSYS) -Q synth_horus_norm.ys 2>&1 | tee SYNTH_HORUS_NORM.log
+	@echo "Log: SYNTH_HORUS_NORM.log"
+	@echo ""
+
+expnorm_all: expnorm_sweep horus_norm_rtl synth_norm
+	@echo "expnorm campaign complete."
+	@echo "Artifacts: EXPNORM_SWEEP.csv  EXPNORM_GOLDEN.csv  EXPNORM_GOLDEN.dat  SYNTH_HORUS_NORM.log"
+	@echo "Doc: docs/EXPNORM_RESULTS.md"
+	@echo ""
+
+# ── MLP digit-classification inference demo (negative result) ────────────────
+mlp_train:
+	@echo "Training 64→16→10 MLP and quantising to NFE..."
+	$(PYTHON) mlp_train.py
+	@echo ""
+	@echo "Artifacts: MLP_W1.hex MLP_B1.hex MLP_W2.hex MLP_B2.hex"
+	@echo "           MLP_TEST_IMAGES.hex MLP_TEST_LABELS.dat MLP_FP64.npz"
+	@echo ""
+
+mlp_infer:
+	@echo "Running NFE inference pipelines (task gate enforced)..."
+	$(PYTHON) mlp_infer_nfe.py; true
+	@echo ""
+	@echo "Artifacts: MLP_PY_TRACE.csv  MLP_SHOWCASE.dat"
+	@echo ""
+
+mlp_analyze:
+	@echo "Cross-checking RTL vs Python (RTL trace absent → negative result)..."
+	$(PYTHON) analyze_mlp.py; true
+	@echo ""
+
+mlp_all: mlp_train mlp_infer mlp_analyze
+	@echo "MLP inference campaign complete."
+	@echo "Negative result documented in docs/MLP_INFERENCE_DEMO.md"
 	@echo ""

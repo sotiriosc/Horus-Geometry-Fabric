@@ -1,0 +1,54 @@
+# synth_add_circuits.ys — isolated ADD gate-count synthesis (Yosys 0.9)
+
+read_verilog synth_add_isolated.v
+hierarchy -check -top nfe_add_frac_comb
+proc; opt; flatten; opt
+techmap; opt
+abc -g gates
+clean
+stat
+
+design -reset
+read_verilog synth_add_isolated.v
+hierarchy -check -top nfe_add_frac_comb
+proc; opt; flatten; opt
+techmap; opt
+abc -g NAND
+clean
+stat
+
+design -reset
+read_verilog synth_add_isolated.v
+hierarchy -check -top blk_add9_comb
+proc; opt; flatten; opt
+techmap; opt
+abc -g gates
+clean
+stat
+
+design -reset
+read_verilog synth_add_isolated.v
+hierarchy -check -top blk_add9_comb
+proc; opt; flatten; opt
+techmap; opt
+abc -g NAND
+clean
+stat
+
+design -reset
+read_verilog synth_add_isolated.v
+hierarchy -check -top blk_add17_comb
+proc; opt; flatten; opt
+techmap; opt
+abc -g gates
+clean
+stat
+
+design -reset
+read_verilog synth_add_isolated.v
+hierarchy -check -top blk_add17_comb
+proc; opt; flatten; opt
+techmap; opt
+abc -g NAND
+clean
+stat

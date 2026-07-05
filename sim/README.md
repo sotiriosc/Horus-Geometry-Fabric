@@ -92,3 +92,8 @@ fidelity LFSR replay). Those results are summarized in
 The 1024-cycle fidelity benchmark logic is replicated in `analyze_fidelity.py` (requires
 `fidelity_benchmark.csv` from `make fidelity`) and was also reproduced inline for
 compensated-accumulation and block-scaling comparisons documented in the review.
+
+The second-source chain RTL confirmation (`make ssc_chain`) runs `tb/tb_second_source_chain.v`
+through three spectral regimes × 256 depth cycles and prints explicit CONFIRMED / NOT CONFIRMED
+verdicts against `sim/second_source_chain.py`. Results are in
+[docs/SSC_CHAIN_RESULTS.md](../docs/SSC_CHAIN_RESULTS.md).

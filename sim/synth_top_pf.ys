@@ -1,0 +1,20 @@
+# synth_top_pf.ys — Sky130 HD synthesis of horus_top with horus_nfe_pf substituted.
+# horus_nfe_pf is renamed to horus_nfe before hierarchy elaboration so the
+# systolic array's generate-block instantiations resolve to the PF variant.
+# horus_nfe.v is NOT read; the PF module supplies the only horus_nfe definition.
+# Run from sim/ directory.
+# Liberty: sky130_fd_sc_hd TT 025C 1v80
+# Timing: not measured (OpenSTA not available).
+
+read_verilog ../rtl/horus_nfe_pf.v
+rename horus_nfe_pf horus_nfe
+read_verilog ../rtl/horus_systolic_array.v
+read_verilog ../rtl/horus_controller.v
+read_verilog ../rtl/horus_top.v
+
+synth -top horus_top
+
+dfflibmap -liberty /home/sotiriosc/.volare/volare/sky130/versions/c6d73a35f524070e85faff4a6a9eef49553ebc2b/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+abc     -liberty /home/sotiriosc/.volare/volare/sky130/versions/c6d73a35f524070e85faff4a6a9eef49553ebc2b/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+clean
+stat    -liberty /home/sotiriosc/.volare/volare/sky130/versions/c6d73a35f524070e85faff4a6a9eef49553ebc2b/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
