@@ -43,7 +43,7 @@ Each investigation stayed at the **C-model level** (no RTL changes) unless noted
 | 6 | Compensated accumulation | Recover discarded fraction bits at Thoth Rollover | No improvement to mean/max (saturation dominates) |
 | 7 | Block scaling (block=16) | NVFP4-style per-block exponent | Delays saturation; higher post-saturation max error |
 | 8 | E_block dmov cost (matvec) | Price block metadata in mesh | **No breakeven** at α ∈ {1,10,100,1000} |
-| 9 | Gate-level GE (ADD, NORM, MUL) | Weight below op-count resolution | Block-scaled MUL ≈ 197 GE; corrected NORM barrel shifter |
+| 9 | Gate-level GE — analytical (ADD, NORM, MUL) | Weight below op-count resolution | Block-scaled MUL ≈ 197 GE; corrected NORM barrel shifter |
 | 10 | E_block cost (1024 deep chain) | Overhead at HBS scale | Zero dmov in single-accumulator chain; gate savings ~37% |
 | 11 | E_block_A / E_block_x stalls | Mesh propagation cost | E_block_A static per PE; E_block_x stall eliminable (~54 GE) |
 | 12 | Fidelity benchmark semantics | Real vs synthetic growth pattern | **Synthetic stress test**; real workloads use block-linear accum ≤16 |
@@ -51,6 +51,7 @@ Each investigation stayed at the **C-model level** (no RTL changes) unless noted
 | 14 | ABMP blast radius | Which shapes trigger the bug? | Fixed `depth > 16`; K≤16 safe; bug in `accum_out` not `result` |
 | 15 | K=128 HBS-1 reduction | First case where boundary actually fires | 7 boundaries; 0% accuracy delta on result path |
 | 16 | Forced normalization (E<20) | Close last unconditional gap | Norm fires; operand = `op_a`; still 0% measured delta |
+| 17 | **ADD synthesis** (Yosys, cells vs GE hypotheses) | Resolve merged (70) vs explicit (91) ADD ambiguity | **70 GE confirmed**; blk9=40, blk17=87; chain 34.7%; matvec α_break=3.88/2.18 |
 
 ---
 
@@ -170,13 +171,42 @@ post-saturation. Hardware cost: per-block scale register + NORM at each boundary
 breakeven at any α**. Deep 1024-chain: E_block dmov = 0 (single accumulator); gate-weighted
 savings exist but address a non-production workload pattern.
 
-**Gate-level breakdown (component GE):**
+**Gate-level breakdown — analytical (component GE):**
 
 | Component | NFE ADD (rollover) | Block 9-bit ADD | Block NORM (corrected barrel) | Block MUL |
 |-----------|-------------------|-----------------|------------------------------|-----------|
 | ~GE | ~45 | ~18 | ~81 (9-bit) / ~117 (17-bit) | **197** (derived) |
 
 Breakeven α for matvec recalibrated after MUL correction (was previously underestimated).
+
+**Gate-level — Yosys synthesis (see `sim/synth/`):**
+
+Synthesized with `yosys -p "read_verilog ...; synth -flatten; stat"` (Yosys 0.9,
+no technology-specific mapping; each internal cell ≈ 1 logic-gate instance).
+
+| Circuit | Raw cells (Yosys) | Prior analytical | Prior model accuracy |
+|---------|------------------|-----------------|----------------------|
+| Standard NFE ADD_FRAC | **69** | 70 (merged) / 91 (explicit) | Merged **correct** (+1.5%); explicit refuted (+32%) |
+| Block 9-bit ADD (chain) | **40** | 36 | 11% low — small underestimate |
+| Block 17-bit ADD (matvec) | **87** | 68 | 28% low — meaningful underestimate |
+
+The 17-bit block accumulator ADD (87 cells) is **26% larger than standard NFE ADD** (69 cells),
+because the wide integer path for matvec block accumulation requires more logic than the 7-bit
+NFE mantissa adder even after adding rollover/exp/sat.
+
+Rollover/exp/sat overhead in synthesis: **29 cells** (merged assumed 34, explicit assumed 55).
+
+**Synthesis-corrected downstream numbers:**
+
+| Metric | Synthesis | Prior merged | Prior explicit |
+|--------|-----------|-------------|----------------|
+| Chain saving (deep-chain 1024) | **34.69%** | 41.34% | 54.88% |
+| Matvec Δgw_arith | **−34.9** | −50.4 | −67.2 |
+| Breakeven α bcast (+9 dmov) | **3.88** | 5.60 | 7.47 |
+| Breakeven α indep (+16 dmov) | **2.18** | 3.15 | 4.20 |
+
+Note: MUL estimates (265/197 GE) remain analytical; synthesis validates ADD. If MUL scales
+proportionally to ADD (factor ~1.4×), breakeven α would recover toward the explicit-model values.
 
 ### 7. Saturation reachability (real CLASS_A epoch)
 
@@ -221,7 +251,7 @@ codeword — **0.000% measured delta**.
 | ABMP off-by-one on `accum_out` | **Confirmed, isolated** | Fix if anything reads snapshot as compute input; **not** a GEMM accuracy bug |
 | Long-chain divergence (1024-cycle) | **Stress test only** | Do not use to size CLASS_A fixes |
 | Saturation / Thoth rollover at epoch≤16 | **Unreachable** | Set aside for real operand ranges |
-| Block scaling energy breakeven | **No (matvec)** | Not recommended on dmov-dominated paths |
+| Block scaling energy breakeven | **No (matvec)** | Not recommended on dmov-dominated paths; synthesis-validated ADD confirms arithmetic savings require α < 3.88 bcast to pay off |
 | Compensated accumulation | **No gain** | Saturation-limited; irrelevant for bounded epochs |
 
 ### Unconditional statement (evidence-backed)
