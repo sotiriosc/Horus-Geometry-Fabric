@@ -51,7 +51,8 @@ Each investigation stayed at the **C-model level** (no RTL changes) unless noted
 | 14 | ABMP blast radius | Which shapes trigger the bug? | Fixed `depth > 16`; K≤16 safe; bug in `accum_out` not `result` |
 | 15 | K=128 HBS-1 reduction | First case where boundary actually fires | 7 boundaries; 0% accuracy delta on result path |
 | 16 | Forced normalization (E<20) | Close last unconditional gap | Norm fires; operand = `op_a`; still 0% measured delta |
-| 17 | **ADD synthesis** (Yosys, cells vs GE hypotheses) | Resolve merged (70) vs explicit (91) ADD ambiguity | **70 GE confirmed**; blk9=40, blk17=87; chain 34.7%; matvec α_break=3.88/2.18 |
+| 17 | ADD synthesis — Yosys generic | Resolve merged (70) vs explicit (91) ADD ambiguity | **70 GE confirmed** (Yosys-raw 69 cells); blk9=40, blk17=87 |
+| 18 | **ADD synthesis — Sky130 HD PDK** | Real physical cells & µm² area | std=**87 GE** / 326.6µm²; blk9=**57 GE** / 215.2µm²; blk17=**120 GE** / 450.4µm²; chain **28.3%**; α_break **2.0/1.1** |
 
 ---
 
@@ -179,34 +180,49 @@ savings exist but address a non-production workload pattern.
 
 Breakeven α for matvec recalibrated after MUL correction (was previously underestimated).
 
-**Gate-level — Yosys synthesis (see `sim/synth/`):**
+**Gate-level — Yosys synthesis, then Sky130 HD (see `sim/synth/`):**
 
-Synthesized with `yosys -p "read_verilog ...; synth -flatten; stat"` (Yosys 0.9,
-no technology-specific mapping; each internal cell ≈ 1 logic-gate instance).
+Two synthesis runs on isolated combinational Verilog modules:
+1. **Yosys generic**: `synth -flatten` only (Yosys 0.9 internal cells, each ≈ 1 logic gate)
+2. **Sky130 HD**: `abc -liberty sky130_fd_sc_hd__tt_025C_1v80.lib` → real physical standard cells,
+   area in µm² from `stat -liberty`, NAND2_1 = 3.7536 µm² as 1 GE reference.
 
-| Circuit | Raw cells (Yosys) | Prior analytical | Prior model accuracy |
-|---------|------------------|-----------------|----------------------|
-| Standard NFE ADD_FRAC | **69** | 70 (merged) / 91 (explicit) | Merged **correct** (+1.5%); explicit refuted (+32%) |
-| Block 9-bit ADD (chain) | **40** | 36 | 11% low — small underestimate |
-| Block 17-bit ADD (matvec) | **87** | 68 | 28% low — meaningful underestimate |
+**Sky130 cell breakdown (TT 025°C 1.8V):**
 
-The 17-bit block accumulator ADD (87 cells) is **26% larger than standard NFE ADD** (69 cells),
-because the wide integer path for matvec block accumulation requires more logic than the 7-bit
-NFE mantissa adder even after adding rollover/exp/sat.
+| Cell | NFE ADD | blk9 ADD | blk17 ADD |
+|------|---------|---------|---------|
+| `xnor2_1` (2.333 GE each) | 6 | 6 | 19 |
+| `xor2_1`  (2.333 GE each) | 3 | 5 | 5 |
+| `maj3_1`  (2.667 GE each) | 3 | — | 4 |
+| `nand2_1/nor2_1` (1 GE)   | 10 | 10 | 16 |
+| complex (AOI/OAI/mux…)    | 27 | 14 | 22 |
+| **Total cells**           | **49** | **35** | **66** |
+| **Area (µm²)**            | **326.56** | **215.21** | **450.43** |
+| **Area (GE)**             | **87.00** | **57.33** | **120.00** |
 
-Rollover/exp/sat overhead in synthesis: **29 cells** (merged assumed 34, explicit assumed 55).
+**Comparison across all four models:**
 
-**Synthesis-corrected downstream numbers:**
+| Circuit | Sky130 (real) | Yosys-raw | Merged (analytical) | Explicit (analytical) |
+|---------|--------------|-----------|--------------------|-----------------------|
+| Std NFE ADD | **87.00 GE** / 326.56 µm² | 69 cells | 70 GE | 91 GE |
+| Block 9-bit ADD | **57.33 GE** / 215.21 µm² | 40 cells | 36 GE | — |
+| Block 17-bit ADD | **120.00 GE** / 450.43 µm² | 87 cells | 68 GE | — |
 
-| Metric | Synthesis | Prior merged | Prior explicit |
-|--------|-----------|-------------|----------------|
-| Chain saving (deep-chain 1024) | **34.69%** | 41.34% | 54.88% |
-| Matvec Δgw_arith | **−34.9** | −50.4 | −67.2 |
-| Breakeven α bcast (+9 dmov) | **3.88** | 5.60 | 7.47 |
-| Breakeven α indep (+16 dmov) | **2.18** | 3.15 | 4.20 |
+Block 17-bit ADD (120 GE) is **38% larger than std NFE ADD** (87 GE) in sky130 physical area.
+The XOR-heavy adder implementation is the driver: 24 XOR/XNOR cells @ 2.333 GE each = 56 GE of the 120 GE total.
 
-Note: MUL estimates (265/197 GE) remain analytical; synthesis validates ADD. If MUL scales
-proportionally to ADD (factor ~1.4×), breakeven α would recover toward the explicit-model values.
+**Downstream metrics — all four models side by side:**
+
+| Metric | **Sky130** | Yosys-raw | Merged | Explicit |
+|--------|-----------|-----------|--------|----------|
+| Chain saving | **28.28%** | 34.69% | 41.34% | 54.88% |
+| Matvec Δgw_arith | **−18.0** | −34.9 | −50.4 | −67.2 |
+| Breakeven α bcast (+9 dmov) | **2.00** | 3.88 | 5.60 | 7.47 |
+| Breakeven α indep (+16 dmov) | **1.13** | 2.18 | 3.15 | 4.20 |
+
+Each stage of increasing synthesis realism has continued the downward trend in savings.
+At sky130 area: block scaling breaks even at α < 2.0 (broadcast) — below the α=10 threshold
+for any realistic memory hierarchy.
 
 ### 7. Saturation reachability (real CLASS_A epoch)
 
