@@ -1,25 +1,35 @@
 #!/usr/bin/env python3
 """
-sim/mlp_infer_nfe.py — Three-pipeline NFE inference on the sklearn digits test set.
+sim/mlp_infer_nfe.py — Four-pipeline NFE inference on the sklearn digits test set.
 
 Division of labour:
   NFE DUT (horus_nfe, modelled by nfe_mul):  all multiply-accumulate arithmetic.
+  DUT (horus_norm_v2, modelled by shared_offset_expnorm): between-layer re-grounding.
   Harness (this script):  block sequencing, bias add, ReLU, argmax, enc/dec.
 
 Pipelines:
   (a) FP64 reference  — original floating-point weights and activations.
   (b) NFE weights + FP64 activations  — isolates weight-quantisation error.
-  (c) Full NFE  — NFE weights, post-layer activations re-encoded to NFE, with
-                  expnorm applied to each 8-element block before the next layer.
-                  ReLU is computed in the harness on decoded real values.
-                  E_TARGET = 32, matching rtl/horus_norm.v parameterisation.
+  (c) Full NFE + shared-offset expnorm  — NFE weights, post-layer activations
+        re-encoded to NFE, with two-pass shared-offset normalization over the
+        full 16-element hidden activation vector between layers.
+        Mirrors horus_norm_v2 composition (rtl/horus_norm_v2.v):
+          Pass 1 (mode=0): compute e_max_a from block 0 (neurons 0–7) and
+                           e_max_b from block 1 (neurons 8–15).
+          Harness:         shared_offset = E_TARGET − max(e_max_a, e_max_b).
+          Pass 2 (mode=1): apply shared_offset to both blocks.
+        ReLU computed in the harness on decoded real values.
+        E_TARGET = 32, matching rtl/horus_norm_v2.v E_TARGET default.
+  (d) Full NFE, no expnorm  — NFE weights, NFE activations, no normalization.
+        Added for the record: single-pass inference does not require re-grounding.
 
-Gate (per task spec): if pipeline (c) accuracy drops more than 5 pp below FP64,
-this script prints a GATE FAIL report and exits 1; Task 3 (RTL testbench) must
-not proceed until the gate passes.
+Gate: if pipeline (c) accuracy drops more than 5 pp below FP64, this script
+prints a GATE FAIL report and exits 1 (see docs/MLP_INFERENCE_DEMO.md for the
+prior gate failure and root-cause analysis).
 
 NFE helpers reused from sim/norm_interval_sweep.py lines 64-98 (NFE, nfe_dec,
 nfe_enc, nfe_mul) and sim/expnorm_sweep.py lines 160-184 (expnorm_rescale).
+Two-pass composition mirrors sim/expnorm_sweep.py gen_v2_golden_dat() logic.
 
 Outputs:
   sim/MLP_PY_TRACE.csv   — per-image pipeline-(c) trace for analyze_mlp.py.
@@ -93,6 +103,39 @@ def expnorm_rescale(y_nfe, e_target=E_TARGET):
         else:                 result.append(NFE(w.s, new_e, w.f))
     return result
 
+def _apply_fixed_offset(block, offset):
+    """Apply a fixed signed offset to one 8-element NFE block.
+    Mirrors horus_norm_v2 mode=1 per-element exponent add with clamping
+    (rtl/horus_norm_v2.v lines 98-117)."""
+    result = []
+    for w in block:
+        new_e = w.e + offset
+        if new_e < 0:         result.append(NFE(w.s, 0, 0))
+        elif new_e > EXP_MAX: result.append(NFE(w.s, EXP_MAX, 63))
+        else:                 result.append(NFE(w.s, new_e, w.f))
+    return result
+
+def shared_offset_expnorm(block_a, block_b, e_target=E_TARGET):
+    """Two-pass shared-offset expnorm for 16-element hidden layer.
+
+    Mirrors horus_norm_v2 two-block composition
+    (rtl/horus_norm_v2.v, sim/expnorm_sweep.py gen_v2_golden_dat()):
+      Pass 1 (mode=0):  e_max_a = max(block_a[i].e),
+                         e_max_b = max(block_b[i].e)
+      Harness:           shared_e_max = max(e_max_a, e_max_b)
+                         shared_offset = e_target − shared_e_max
+                         (if shared_e_max = 0: no change)
+      Pass 2 (mode=1):  apply shared_offset to both blocks.
+    """
+    e_max_a = max(w.e for w in block_a)
+    e_max_b = max(w.e for w in block_b)
+    shared_e_max = max(e_max_a, e_max_b)
+    if shared_e_max == 0:
+        return list(block_a), list(block_b)
+    shared_offset = e_target - shared_e_max
+    return _apply_fixed_offset(block_a, shared_offset), \
+           _apply_fixed_offset(block_b, shared_offset)
+
 # ── Weight loader ─────────────────────────────────────────────────────────────
 def load_hex(path):
     """Load NFE codewords from hex file, return list of NFE objects."""
@@ -134,54 +177,52 @@ def pipeline_b_forward(nfe_W1, nfe_b1, nfe_W2_pad, nfe_b2_pad, x):
         z2[i] += nfe_dec(nfe_b2_pad[i])
     return h1, z2[:10]   # first 10 outputs are real digits
 
-# ── Pipeline (c): Full NFE with expnorm ──────────────────────────────────────
+# ── Pipeline (c): Full NFE with shared-offset expnorm ────────────────────────
 def pipeline_c_forward(nfe_W1, nfe_b1, nfe_W2_pad, nfe_b2_pad, x_nfe):
     """
-    RTL-faithful pipeline:
-      DUT (modelled by nfe_mul):  all 8×8-block multiply-accumulate arithmetic.
-      Harness:  bias add, ReLU, NFE encode, expnorm, argmax.
+    RTL-faithful pipeline — shared-offset expnorm (horus_norm_v2 composition):
+      DUT (modelled by nfe_mul):            all 8×8-block multiply-accumulate.
+      DUT (modelled by shared_offset_expnorm): two-pass 16-element re-grounding.
+      Harness: bias add, ReLU, NFE encode, argmax.
 
-    Returns (h1_nfe_final, z2_real, pred) where h1_nfe_final is the hidden
-    layer activation as NFE codewords AFTER expnorm (used for RTL comparison).
-    h1_nfe_final[0..7]  = output block 0 after expnorm.
-    h1_nfe_final[8..15] = output block 1 after expnorm.
+    Returns (h1_nfe_final, z2_real, pred).
+    h1_nfe_final[0..7]  = output block 0 after shared-offset expnorm.
+    h1_nfe_final[8..15] = output block 1 after shared-offset expnorm.
     """
-    h1_nfe_final = [None] * 16
-
     # Layer 1 — two output blocks of 8 neurons each
     z1 = [0.0] * 16
-    for ob in range(2):   # output block
-        for ib in range(8):   # input block
+    for ob in range(2):
+        for ib in range(8):
             for i in range(8):
                 row = ob * 8 + i
                 for j in range(8):
                     col = ib * 8 + j
                     prod = nfe_mul(nfe_W1[row][col], x_nfe[col])
                     z1[row] += nfe_dec(prod)
-        # Bias add + ReLU (harness)
         for i in range(8):
             row = ob * 8 + i
             z1[row] += nfe_dec(nfe_b1[row])
-            h_val = max(0.0, z1[row])
-            # NFE encode post-ReLU activation
-            h1_nfe_final[row] = nfe_enc(h_val)
-        # Expnorm on this 8-element output block (harness calls horus_norm model)
-        block = [h1_nfe_final[ob * 8 + i] for i in range(8)]
-        block_normed = expnorm_rescale(block)
-        for i in range(8):
-            h1_nfe_final[ob * 8 + i] = block_normed[i]
+
+    # NFE-encode post-ReLU activations (harness)
+    h1_nfe_raw = [nfe_enc(max(0.0, z1[k])) for k in range(16)]
+
+    # Two-pass shared-offset expnorm (mirrors horus_norm_v2 composition,
+    # rtl/horus_norm_v2.v + sim/expnorm_sweep.py gen_v2_golden_dat())
+    b0 = h1_nfe_raw[0:8]
+    b1 = h1_nfe_raw[8:16]
+    b0_norm, b1_norm = shared_offset_expnorm(b0, b1)
+    h1_nfe_final = b0_norm + b1_norm
 
     # Layer 2 — two output blocks of 8 neurons each (last 6 are padding)
     z2 = [0.0] * 16
     for ob in range(2):
-        for ib in range(2):   # input block (hidden layer has 16 neurons = 2 blocks)
+        for ib in range(2):
             for i in range(8):
                 row = ob * 8 + i
                 for j in range(8):
                     col = ib * 8 + j
                     prod = nfe_mul(nfe_W2_pad[row][col], h1_nfe_final[col])
                     z2[row] += nfe_dec(prod)
-        # Bias add (harness) — no ReLU on output layer
         for i in range(8):
             row = ob * 8 + i
             z2[row] += nfe_dec(nfe_b2_pad[row])
@@ -189,6 +230,40 @@ def pipeline_c_forward(nfe_W1, nfe_b1, nfe_W2_pad, nfe_b2_pad, x_nfe):
     z2_real = z2[:10]
     pred = int(np.argmax(z2_real))
     return h1_nfe_final, z2_real, pred
+
+
+# ── Pipeline (d): Full NFE, no expnorm (added for the record) ─────────────────
+def pipeline_d_forward(nfe_W1, nfe_b1, nfe_W2_pad, nfe_b2_pad, x_nfe):
+    """
+    NFE weights + NFE activations, NO expnorm between layers.
+    Single-pass inference does not compound quantisation error, so re-grounding
+    is not required for correctness.  Added for the record.
+    """
+    z1 = [0.0] * 16
+    for ob in range(2):
+        for ib in range(8):
+            for i in range(8):
+                row = ob * 8 + i
+                for j in range(8):
+                    col = ib * 8 + j
+                    z1[row] += nfe_dec(nfe_mul(nfe_W1[row][col], x_nfe[col]))
+        for i in range(8):
+            row = ob * 8 + i
+            z1[row] += nfe_dec(nfe_b1[row])
+    h1_nfe = [nfe_enc(max(0.0, z1[k])) for k in range(16)]
+
+    z2 = [0.0] * 16
+    for ob in range(2):
+        for ib in range(2):
+            for i in range(8):
+                row = ob * 8 + i
+                for j in range(8):
+                    col = ib * 8 + j
+                    z2[row] += nfe_dec(nfe_mul(nfe_W2_pad[row][col], h1_nfe[col]))
+        for i in range(8):
+            row = ob * 8 + i
+            z2[row] += nfe_dec(nfe_b2_pad[row])
+    return int(np.argmax(z2[:10]))
 
 # ── Confusion matrix helpers ──────────────────────────────────────────────────
 def class_breakdown(preds, trues, n_classes=10):
@@ -242,9 +317,9 @@ def main():
     acc_b = sum(p == t for p, t in zip(preds_b, y_te)) / n_test
     print(f"Pipeline (b) NFE weights + FP64 acts:  {acc_b*100:.2f}%  ({sum(p==t for p,t in zip(preds_b,y_te))}/{n_test})")
 
-    # ── Pipeline (c): Full NFE with expnorm ──────────────────────────────────
+    # ── Pipeline (c): Full NFE with shared-offset expnorm ────────────────────
     preds_c     = []
-    h1_traces   = []   # h1 after expnorm (NFE codewords), for RTL comparison
+    h1_traces   = []   # h1 after shared-offset expnorm (NFE codewords), for RTL comparison
     z2_traces   = []   # output scores (FP64 decoded)
 
     # Pre-encode test images to NFE
@@ -259,7 +334,15 @@ def main():
         z2_traces.append(z2_real)
 
     acc_c = sum(p == t for p, t in zip(preds_c, y_te)) / n_test
-    print(f"Pipeline (c) Full NFE + expnorm:       {acc_c*100:.2f}%  ({sum(p==t for p,t in zip(preds_c,y_te))}/{n_test})")
+    print(f"Pipeline (c) Full NFE + shared expnorm:{acc_c*100:.2f}%  ({sum(p==t for p,t in zip(preds_c,y_te))}/{n_test})")
+
+    # ── Pipeline (d): Full NFE, no expnorm (for the record) ──────────────────
+    preds_d = []
+    for x in X_te:
+        x_nfe = [nfe_enc(float(px)) for px in x]
+        preds_d.append(pipeline_d_forward(nfe_W1, nfe_b1, nfe_W2, nfe_b2, x_nfe))
+    acc_d = sum(p == t for p, t in zip(preds_d, y_te)) / n_test
+    print(f"Pipeline (d) Full NFE, no expnorm:     {acc_d*100:.2f}%  ({sum(p==t for p,t in zip(preds_d,y_te))}/{n_test})")
 
     # ── Gate check ────────────────────────────────────────────────────────────
     delta = acc_a - acc_c
@@ -365,17 +448,18 @@ def main():
                       f"  →  NFE {tp_c2[cls]}/{tot2[cls]}"
                       f"  (lost {tp_a2[cls]-tp_c2[cls]})")
 
-    # ── Three-way accuracy table ───────────────────────────────────────────────
-    print("\nThree-way accuracy table:")
-    print(f"  {'Pipeline':<35}  {'Accuracy':>8}  {'Correct':>7}")
-    print(f"  {'-'*35}  {'-'*8}  {'-'*7}")
+    # ── Four-way accuracy table ───────────────────────────────────────────────
+    print("\nFour-way accuracy table:")
+    print(f"  {'Pipeline':<40}  {'Accuracy':>8}  {'Correct':>7}")
+    print(f"  {'-'*40}  {'-'*8}  {'-'*7}")
     for label, preds, acc in [
-        ("(a) FP64 reference",           preds_a, acc_a),
-        ("(b) NFE weights + FP64 acts",  preds_b, acc_b),
-        ("(c) Full NFE + expnorm",        preds_c, acc_c),
+        ("(a) FP64 reference",                       preds_a, acc_a),
+        ("(b) NFE weights + FP64 acts",              preds_b, acc_b),
+        ("(c) Full NFE + shared-offset expnorm",     preds_c, acc_c),
+        ("(d) Full NFE, no expnorm  [for record]",   preds_d, acc_d),
     ]:
         n_corr = sum(p == t for p, t in zip(preds, y_te))
-        print(f"  {label:<35}  {acc*100:>7.2f}%  {n_corr:>4}/{n_test}")
+        print(f"  {label:<40}  {acc*100:>7.2f}%  {n_corr:>4}/{n_test}")
 
     # ── Per-class breakdown for pipeline (c) ─────────────────────────────────
     print("\nPer-class breakdown — pipeline (c) Full NFE:")

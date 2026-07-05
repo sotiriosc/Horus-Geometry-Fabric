@@ -957,7 +957,7 @@ expnorm_all: expnorm_sweep horus_norm_rtl synth_norm
 	@echo "Doc: docs/EXPNORM_RESULTS.md"
 	@echo ""
 
-# ── MLP digit-classification inference demo (negative result) ────────────────
+# ── MLP digit-classification inference demo ───────────────────────────────────
 mlp_train:
 	@echo "Training 64→16→10 MLP and quantising to NFE..."
 	$(PYTHON) mlp_train.py
@@ -966,19 +966,40 @@ mlp_train:
 	@echo "           MLP_TEST_IMAGES.hex MLP_TEST_LABELS.dat MLP_FP64.npz"
 	@echo ""
 
+mlp_norm_v2_golden:
+	@echo "Generating EXPNORM_V2_GOLDEN.dat for tb_horus_norm_v2..."
+	$(PYTHON) expnorm_sweep.py --v2-golden
+	@echo ""
+
+mlp_norm_v2: mlp_norm_v2_golden
+	@echo "Compiling and running tb_horus_norm_v2 (mode-0 regression + composition)..."
+	iverilog -g2012 -Wall -o sim_horus_norm_v2 \
+	    ../tb/tb_horus_norm_v2.v ../rtl/horus_norm_v2.v
+	vvp sim_horus_norm_v2
+	@echo ""
+
 mlp_infer:
-	@echo "Running NFE inference pipelines (task gate enforced)..."
-	$(PYTHON) mlp_infer_nfe.py; true
+	@echo "Running NFE inference pipelines (a/b/c/d, gate check, showcase)..."
+	$(PYTHON) mlp_infer_nfe.py
 	@echo ""
 	@echo "Artifacts: MLP_PY_TRACE.csv  MLP_SHOWCASE.dat"
 	@echo ""
 
-mlp_analyze:
-	@echo "Cross-checking RTL vs Python (RTL trace absent → negative result)..."
-	$(PYTHON) analyze_mlp.py; true
+mlp_rtl: mlp_infer
+	@echo "Compiling and running RTL inference testbench..."
+	iverilog -g2012 -Wall -o sim_mlp_inference \
+	    ../tb/tb_mlp_inference.v ../rtl/horus_nfe.v ../rtl/horus_norm_v2.v
+	vvp sim_mlp_inference
+	@echo ""
+	@echo "Artifacts: MLP_RTL_TRACE.csv"
 	@echo ""
 
-mlp_all: mlp_train mlp_infer mlp_analyze
-	@echo "MLP inference campaign complete."
-	@echo "Negative result documented in docs/MLP_INFERENCE_DEMO.md"
+mlp_analyze: mlp_infer mlp_rtl
+	@echo "Cross-checking RTL vs Python (predictions + activations)..."
+	$(PYTHON) analyze_mlp.py
+	@echo ""
+
+mlp_all: mlp_train mlp_norm_v2 mlp_infer mlp_rtl mlp_analyze
+	@echo "MLP inference demo complete (shared-offset expnorm, gate PASSED)."
+	@echo "Full arc documented in docs/MLP_INFERENCE_DEMO.md"
 	@echo ""

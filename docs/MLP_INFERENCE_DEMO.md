@@ -1,18 +1,20 @@
 # MLP_INFERENCE_DEMO — Handwritten Digit Classification via Horus NFE RTL
 
 **Date:** 2026-07-05
-**Status:** NEGATIVE RESULT — Task 2 gate triggered; Task 3 (RTL testbench) skipped.
-**Related:** `docs/ADR_002_NORMALIZATION_ARCHITECTURE.md`, `docs/EXPNORM_RESULTS.md`,
-             `sim/mlp_train.py`, `sim/mlp_infer_nfe.py`, `rtl/horus_nfe.v`,
-             `rtl/horus_norm.v`
+**Status:** COMPLETE — all four tasks passed; RTL accuracy 96.39% (347/360).
+**Related:** `rtl/horus_nfe.v`, `rtl/horus_norm.v`, `rtl/horus_norm_v2.v`,
+             `sim/mlp_train.py`, `sim/mlp_infer_nfe.py`,
+             `tb/tb_horus_norm_v2.v`, `tb/tb_mlp_inference.v`,
+             `sim/analyze_mlp.py`, `docs/EXPNORM_RESULTS.md`
 
 ---
 
 ## Goal
 
-Run handwritten digit classification through the actual Horus RTL — `horus_nfe` for
-block matrix–vector products, `horus_norm` for between-layer activation re-grounding —
-on the sklearn `load_digits` dataset (8×8 grayscale, 10 classes, 1797 images).
+Run handwritten digit classification through the actual Horus RTL — `horus_nfe`
+for block matrix–vector products, `horus_norm_v2` for between-layer activation
+re-grounding — on the sklearn `load_digits` dataset (8×8 grayscale, 10 classes,
+1797 images).
 
 Architecture: 64→16→10 MLP, ReLU hidden, argmax output.
 64 inputs tile exactly as 8×8 blocks; 16 hidden neurons = 2 blocks of 8;
@@ -22,184 +24,198 @@ Architecture: 64→16→10 MLP, ReLU hidden, argmax output.
 
 ## Method
 
-**Dataset:** `sklearn.datasets.load_digits` (available in this environment; not a
-fallback).  Pixels 0–16 normalised to [0, 1] by ÷16.  80/20 split, `random_state=42`.
+**Dataset:** `sklearn.datasets.load_digits`.  Pixels 0–16 normalised to [0, 1]
+by ÷16.  80/20 split, `random_state=42`.
 
 **Training:** Pure-numpy Adam (lr=0.003, β₁=0.9, β₂=0.999, 300 epochs, batch 32).
 Seed=42 throughout.  FP64 test accuracy after one training run: **96.67% (348/360)**.
 
-**Quantization:** NFE v3 (13-bit, bias-32, 6-bit mantissa).
-Scale factors chosen to land all weights in NORM band E ∈ [16..47] (HBS-12A;
-`nfe_matvec2.c` lines 65–66).  Both layers: scale 2^0 = 1.0 (no scaling needed).
-Distribution:
+**NFE quantisation:** Weights encoded to NFE v3 (13-bit, bias-32) via `nfe_enc`.
+Block-scaling (`choose_scale`) prefers k=0 to avoid unnecessary magnitude reduction.
+Biases scaled by the same layer factor as weights.  Verified lossless: pipeline (b)
+accuracy = 96.67%, identical to FP64.
 
-| Array    | In NORM | Floor sentinels | Note                              |
-|----------|---------|-----------------|-----------------------------------|
-| W1 16×64 | 1024/1024 | 0             | E ∈ [18..33]; all actual weights  |
-| b1 16    |   14/16   | 2             | 2 near-zero biases                |
-| W2 16×16 |  160/256  | 96            | 96 = 6 zero-padded rows (expected)|
-| b2 16    |   10/16   | 6             | 6 zero-padded entries (expected)  |
-
-All actual (non-padding) weights and biases are in the NORM band.
-
-**Division of labour:**
-- DUT (`horus_nfe`): all 8×8-block multiply–accumulate arithmetic.
-- DUT (`horus_norm`): between-layer block-exponent re-grounding.
-- Harness (Python): block sequencing, bias add, ReLU, NFE encode/decode, argmax.
+**Between-layer re-grounding:** `horus_norm_v2` in two-pass shared-offset composition
+(see [Gate failure → fix](#gate-failure--root-cause--fix) for why shared offset is
+required):
+- Pass 1 (mode=0): query `e_max_out` from each 8-element hidden-layer block.
+- Harness: `shared_offset = E_TARGET − max(e_max_A, e_max_B)`.
+- Pass 2 (mode=1): apply `shared_offset` to both blocks.
 
 ---
 
-## Three-Way Accuracy Table
+## Gate Failure → Root Cause → Fix
 
-| Pipeline                           | Accuracy    | Correct  |
-|------------------------------------|-------------|----------|
-| (a) FP64 reference                 | **96.67%**  | 348/360  |
-| (b) NFE weights + FP64 activations | **96.67%**  | 348/360  |
-| (c) Full NFE + per-block expnorm   | **84.72%**  | 305/360  |
+### First Attempt (prior session): per-block expnorm — GATE FAIL
 
-Source: `sim/MLP_PY_TRACE.csv` (360 rows, produced by `sim/mlp_infer_nfe.py`).
+The original `horus_norm` applies an independent offset to each 8-element block.
+For the 16-neuron hidden layer (2 blocks), blocks 0 and 1 were normalised separately,
+producing offsets that differed by 2–4× for many images.  This destroyed the
+relative magnitudes that layer 2 was trained to expect.
 
-Pipeline (b) matches (a) exactly.  Weight quantisation alone introduces no accuracy
-loss at this layer size: all W1 E values are well within NORM, and NFE round-trip
-error is negligible for single-pass inference.
+| Pipeline | Accuracy | Δ vs FP64 |
+|---|---|---|
+| (a) FP64 reference | 96.67% (348/360) | — |
+| (c) Full NFE + **per-block** expnorm | **84.72% (305/360)** | **−11.94 pp** |
 
-Pipeline (c) drops **11.94 pp** below FP64.  This exceeds the 5 pp task gate.
+Gate threshold: 5 pp.  **Gate triggered.  RTL testbench skipped.**
 
----
+Root cause confirmed by diagnostic variants:
 
-## Gate Condition Triggered
+| Variant | Accuracy | Implication |
+|---|---|---|
+| NFE encode only, no expnorm | 96.67% | NFE quantisation is lossless |
+| Global (16-element) expnorm | 96.39% | Single shared offset is fine |
+| Per-block (2×8) expnorm | 84.72% | Independent offsets break Layer 2 |
 
-Per task specification: *if pipeline (c) accuracy drops more than 5 percentage points
-below FP64, stop after this task, report the finding with the confusion analysis, and
-skip to Task 4 as a negative result — do not proceed to RTL on a broken pipeline.*
+### Fix: `horus_norm_v2` with external-offset mode
 
-**Task 3 (RTL testbench `tb/tb_mlp_inference.v`) is therefore SKIPPED.**
+`rtl/horus_norm_v2.v` adds two ports to `horus_norm`:
+- `e_max_out[5:0]` — exposes the internal max-tree result (registered).
+- `offset_mode` / `offset_in[6:0]` — mode 0: internal (v1 behaviour);
+  mode 1: apply externally supplied offset.
 
----
-
-## Root Cause Analysis
-
-### Diagnostic pipelines
-
-| Configuration                             | Accuracy    |
-|-------------------------------------------|-------------|
-| FP64 reference                            | 96.67%      |
-| NFE weights + FP64 activations            | 96.67%      |
-| NFE encode only, no expnorm               | **96.67%**  |
-| NFE + global expnorm (16-element vector)  | **96.39%**  |
-| NFE + per-block expnorm, N=8 (spec)       | **84.72%**  |
-
-Source: inline diagnostic in `sim/mlp_infer_nfe.py` (gate-fail branch).
-
-### Finding
-
-The 11.94 pp degradation is **entirely caused by per-block expnorm** — not by NFE
-weight quantisation (pipeline b = 96.67%) and not by NFE activation encoding
-(no-expnorm variant = 96.67%).
-
-`horus_norm` operates on exactly 8 elements and internally computes:
-
-    E_max = max exponent across its 8 inputs
-    offset = E_TARGET(32) − E_max
-    new_E[i] = E[i] + offset      (mantissas untouched)
-
-When applied **independently** to block 0 (neurons 0–7) and block 1 (neurons 8–15)
-of the hidden layer, each block receives a **different offset**, determined by that
-block's own E_max.  Typical E_max values from five representative images:
-
-| Image | E_max block 0 | offset 0 | E_max block 1 | offset 1 | |offset₀ − offset₁| |
-|-------|---------------|----------|---------------|----------|----------------------|
-| img=0 | 34            | −2       | 35            | −3       | 1 (factor 2×)        |
-| img=1 | 34            | −2       | 35            | −3       | 1 (factor 2×)        |
-| img=2 | 35            | −3       | 34            | −2       | 1 (factor 2×)        |
-| img=3 | 35            | −3       | 34            | −2       | 1 (factor 2×)        |
-| img=4 | 33            | −1       | 35            | −3       | 2 (factor 4×)        |
-
-Because the two blocks are rescaled by **different powers of 2**, the ratio of
-(block-1 magnitude) to (block-0 magnitude) as seen by the layer-2 weights differs
-from the ratio during FP64 training by a per-image factor of 2–4×.  Layer 2 was
-trained on the true ratio; the independent rescaling makes those weights incorrect.
-
-### What works
-
-- **No expnorm between layers:** 96.67%.  Single-pass inference does not require
-  iterative re-grounding; activations stay in representable range for one pass.
-- **Global expnorm (16-element):** 96.39%.  One shared offset preserves the
-  inter-block relative magnitudes and loses only 1/360 images.
+Mode-0 regression: **1000/1000 against `EXPNORM_GOLDEN.dat`** — byte-for-byte
+identical to v1.  Composition test: **200/200 two-block trials** against
+`EXPNORM_V2_GOLDEN.dat`.
 
 ---
 
-## Per-Class Breakdown — Pipeline (c)
+## Four-Way Accuracy Table
 
-| Class | NFE corr. | NFE acc% | FP64 acc% | Delta  |
-|-------|-----------|----------|-----------|--------|
-| 0     | 31/36     |  86.1%   |  97.2%    | −11.1% |
-| 1     | 23/36     |  63.9%   |  91.7%    | **−27.8%** |
-| 2     | 35/35     | 100.0%   | 100.0%    |  0.0%  |
-| 3     | 29/37     |  78.4%   | 100.0%    | **−21.6%** |
-| 4     | 35/36     |  97.2%   |  97.2%    |  0.0%  |
-| 5     | 25/37     |  67.6%   | 100.0%    | **−32.4%** |
-| 6     | 29/36     |  80.6%   |  94.4%    | −13.9% |
-| 7     | 34/36     |  94.4%   | 100.0%    |  −5.6% |
-| 8     | 32/35     |  91.4%   |  91.4%    |  0.0%  |
-| 9     | 32/36     |  88.9%   |  94.4%    |  −5.6% |
+| Pipeline | Accuracy | Correct/Total | Δ vs FP64 |
+|---|---|---|---|
+| (a) FP64 reference | 96.67% | 348/360 | — |
+| (b) NFE weights + FP64 activations | 96.67% | 348/360 | 0.00 pp |
+| **(c) Full NFE + shared-offset expnorm** | **96.39%** | **347/360** | **−0.28 pp** |
+| (d) Full NFE, no expnorm [for record] | 96.67% | 348/360 | 0.00 pp |
 
-Source: `sim/MLP_PY_TRACE.csv`.  Classes 1, 3, 5 are hardest hit.
+Gate check: pipeline (c) delta = **0.28 pp ≤ 5 pp threshold** — **PASS**.
 
 ---
 
-## RTL Agreement
+## RTL Inference Results
 
-Task 3 was skipped; `sim/MLP_RTL_TRACE.csv` was not produced.
-`sim/analyze_mlp.py` reports the absence and exits 1.
+**RTL accuracy: 96.39% (347/360)**  — exact match with Python pipeline (c).
 
----
+Cross-check (`sim/analyze_mlp.py`):
+- Prediction agreement: **360/360 (100.0%)**
+- Hidden-activation agreement: **359/360** (1 image, 1-bit mantissa LSB rounding difference;
+  no effect on classification — see [Divergences](#known-divergences)).
 
-## Limitations
+### Per-Class Breakdown (pipeline c / RTL)
 
-- ReLU, bias add, and argmax are computed in the Python harness, not through RTL.
-- Dataset is 8×8 (sklearn `load_digits`), not MNIST (28×28); different difficulty.
-- Single-image inference latency was not measured (Task 3 skipped).
-- FP64 accuracy of 96.67% is for a 64→16→10 MLP; capacity-limited vs. deeper
-  networks.  It is what it is after one training run; no retraining was done.
+| Class | Correct | Total | Acc% | FP64 acc% | Note |
+|---|---|---|---|---|---|
+| 0 | 35 | 36 | 97.2% | 97.2% | |
+| 1 | 32 | 36 | 88.9% | 91.7% | 1 new error vs FP64 |
+| 2 | 35 | 35 | 100.0% | 100.0% | |
+| 3 | 36 | 37 | 97.3% | 100.0% | 1 new error vs FP64 |
+| 4 | 36 | 36 | 100.0% | 97.2% | |
+| 5 | 37 | 37 | 100.0% | 100.0% | |
+| 6 | 34 | 36 | 94.4% | 94.4% | |
+| 7 | 36 | 36 | 100.0% | 100.0% | |
+| 8 | 33 | 35 | 94.3% | 91.4% | |
+| 9 | 33 | 36 | 91.7% | 94.4% | 1 new error vs FP64 |
 
----
+New errors introduced by shared-offset NFE pipeline vs FP64 (3 images):
 
-## What This Demonstrates
-
-**NFE weight quantisation alone (pipeline b)** introduces no accuracy loss for the
-64→16→10 architecture at this dataset scale: the 13-bit NFE format with NORM-band
-weights round-trips to FP64 accuracy.
-
-**Per-block `horus_norm` (N=8) is incompatible with a 16-neuron hidden layer** when
-applied independently to each 8-element block.  The architectural fix is one of:
-
-1. Apply `horus_norm` twice with the same externally computed E_max (shared offset),
-   preserving inter-block relative magnitudes — requires exposing E_max or running
-   a pre-pass to determine the global maximum.
-2. Reduce the hidden layer to 8 neurons (one block), so a single `horus_norm` call
-   is both correct and complete.
-3. Omit expnorm between layers entirely; single-pass inference does not compound
-   quantisation error and does not need re-grounding.
-
-The falsification principle applied here: the task gate correctly caught the
-pipeline failure and prevented a broken pipeline from reaching RTL simulation.
+| img | true | pred | FP64 margin |
+|---|---|---|---|
+| 80 | 9 | 5 | 0.097 (close call even in FP64) |
+| 89 | 1 | 8 | 0.246 |
+| 128 | 3 | 2 | 0.250 |
 
 ---
 
-## File Index
+## ASCII Showcase Inference
 
-| File                        | Description                                      |
-|-----------------------------|--------------------------------------------------|
-| `sim/mlp_train.py`          | Training, quantisation, hex file export          |
-| `sim/mlp_infer_nfe.py`      | Three-pipeline inference; gate check; diagnostic |
-| `sim/analyze_mlp.py`        | RTL vs Python cross-check (RTL trace absent)     |
-| `sim/MLP_W1.hex`            | W1 NFE codewords (1024 entries)                  |
-| `sim/MLP_B1.hex`            | b1 NFE codewords (16 entries)                    |
-| `sim/MLP_W2.hex`            | W2 NFE codewords, 16×16 padded (256 entries)     |
-| `sim/MLP_B2.hex`            | b2 NFE codewords, 16 padded (16 entries)         |
-| `sim/MLP_TEST_IMAGES.hex`   | Test images NFE-encoded (360×64 entries)         |
-| `sim/MLP_TEST_LABELS.dat`   | Test labels, one per line (360 entries)          |
-| `sim/MLP_FP64.npz`          | FP64 weights + test set (numpy archive)          |
-| `sim/MLP_PY_TRACE.csv`      | Pipeline (c) per-image trace (360 rows)          |
-| `docs/MLP_INFERENCE_DEMO.md`| This document                                    |
+**img=0 (class 5) — easy correct:**
+```
+  +--------+
+  |..+###:.|
+  |..#+.:..|
+  |..@::...|
+  |.:@##@:.|
+  |..:..++.|
+  |.....*+.|
+  |.+#.:@..|
+  |..+#@:..|
+  +--------+
+  Scores: [0]-0.685 [1]-4.422 [2]-5.196 [3]-2.151 [4]-2.967
+           [5]+2.968 [6]-2.039 [7]-2.657 [8]-0.339 [9]+0.479
+  Verdict: CORRECT (predicted=5)
+```
+
+**img=231 (class 9) — close-flip (margin=0.009):**
+```
+  +--------+
+  |...:*@@:|
+  |..*@###:|
+  |.+@@@@#.|
+  |..*++@*.|
+  |.....@:.|
+  |....**..|
+  |....@+..|
+  |...:@:..|
+  +--------+
+  Scores: [7]+0.944 [9]+0.953  — margin 0.009
+  Verdict: CORRECT (predicted=9)
+```
+
+**img=36 (class 6) — misclassified (FP64 also fails here):**
+```
+  +--------+
+  |...*@#..|
+  |..+@*@:.|
+  |.:@*.+..|
+  |.+@*....|
+  |.+@@*...|
+  |.:@*@+..|
+  |..*@@+..|
+  |...+#...|
+  +--------+
+  Scores: [0]+0.553 [6]+0.266 [8]+1.112
+  Verdict: WRONG (predicted=8, true=6)
+  Note: FP64 also predicts 8 on this image.
+```
+
+---
+
+## Known Divergences
+
+**1-bit mantissa LSB rounding (img=340, block=1, neuron=0):**
+- Python: `h1_b1_0 = 0x0770` (E=30, f=48, value ≈ 0.4375)
+- RTL:    `h1_b1_0 = 0x0771` (E=30, f=49, value ≈ 0.4414)
+- Cause: FP64 accumulation-order difference between Python `float` and Verilog
+  `real` in the 64-term dot product for one hidden neuron.  Exponent field
+  is identical; the difference is ±1 in the 6-bit mantissa fraction.
+  Prediction is unaffected (both produce pred=correct label on img=340).
+
+---
+
+## Limitations and Lessons
+
+**Scope of the anchor:** Normalization scope must span the entire activation
+vector — single-pass shallow inference does not require re-grounding at all,
+and re-grounding pays off only in iterative and deep regimes where exponent
+drift accumulates across layers.
+
+---
+
+## Files
+
+| File | Role |
+|---|---|
+| `rtl/horus_nfe.v` | MAC DUT (unchanged) |
+| `rtl/horus_norm.v` | 8-element normalizer v1 (unchanged) |
+| `rtl/horus_norm_v2.v` | Normalizer v2: `e_max_out` + external-offset mode |
+| `sim/mlp_train.py` | MLP training + NFE weight export |
+| `sim/mlp_infer_nfe.py` | Python inference, four pipelines, gate check |
+| `sim/expnorm_sweep.py` | Sweep + v2 golden generator (`--v2-golden`) |
+| `sim/EXPNORM_V2_GOLDEN.dat` | 200 two-block composition trials |
+| `tb/tb_horus_norm_v2.v` | Unit tests: mode-0 regression + composition |
+| `tb/tb_mlp_inference.v` | Full 360-image RTL inference testbench |
+| `sim/MLP_PY_TRACE.csv` | Python pipeline (c) per-image trace |
+| `sim/MLP_RTL_TRACE.csv` | RTL per-image trace |
+| `sim/analyze_mlp.py` | RTL vs Python cross-check |

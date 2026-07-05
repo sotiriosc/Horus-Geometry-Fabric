@@ -55,6 +55,8 @@ E_TARGET    = 32   # mid-anchor per HBS-12D; nfe_matvec2.c lines 67-68
 SEED_SSC_BASE  = 0xCAFEF00D   # matches tb_second_source_chain.v
 SEED_PI_BASE   = 0xFACEFEED   # matches tb_pf18_power_iteration.v
 GOLDEN_SEED    = 0xABCD1234   # for EXPNORM_GOLDEN.csv generation
+GOLDEN_V2_SEED = 0xDEADC0DE   # for EXPNORM_V2_GOLDEN.dat (two-block composition)
+N_GOLDEN_V2    = 200           # number of two-block trials
 
 DEPTH          = 256
 N_CHAINS       = 100
@@ -448,6 +450,79 @@ def main():
     return overall
 
 
+def gen_v2_golden_dat(out_path, n=N_GOLDEN_V2, seed=GOLDEN_V2_SEED):
+    """Generate N_GOLDEN_V2 random 16-element (two-block) test vectors for
+    horus_norm_v2 composition tests (sim/EXPNORM_V2_GOLDEN.dat).
+
+    Two-pass shared-offset composition:
+      Pass 1: compute e_max_a = max(block_a[0..7].e),
+                       e_max_b = max(block_b[0..7].e)
+      Harness: shared_e_max = max(e_max_a, e_max_b)
+               shared_offset = E_TARGET − shared_e_max  (if shared_e_max > 0)
+      Pass 2: apply shared_offset to both blocks (mantissas untouched).
+
+    Format (space-separated integers, no header):
+      e_max_a e_max_b shared_e_max shared_offset
+      in_a0..in_a7  in_b0..in_b7
+      out_a0..out_a7  out_b0..out_b7
+    = 4 + 16 + 16 = 36 values per line, one line per trial.
+
+    Mirrors tb_horus_norm_v2.v Part-C composition test.
+    """
+    def apply_offset_block(block, offset):
+        """Apply fixed offset to one 8-element NFE block (mirrors horus_norm_v2
+        mode=1 per-element exponent add with UF/OVF clamping)."""
+        result = []
+        for w in block:
+            ne = w.e + offset
+            if ne < 0:          result.append(NFE(w.s, 0, 0))
+            elif ne > EXP_MAX:  result.append(NFE(w.s, EXP_MAX, 63))
+            else:               result.append(NFE(w.s, ne, w.f))
+        return result
+
+    lfsr = seed & 0xFFFFFFFF
+    dat_lines = []
+    for idx in range(n):
+        # Build two random 8-element NFE blocks
+        block_a, block_b = [], []
+        for _ in range(N):
+            lfsr = lfsr_step(lfsr)
+            raw = lfsr & 0x1FFF
+            block_a.append(NFE((raw >> 12) & 1, (raw >> 6) & 63, raw & 63))
+        for _ in range(N):
+            lfsr = lfsr_step(lfsr)
+            raw = lfsr & 0x1FFF
+            block_b.append(NFE((raw >> 12) & 1, (raw >> 6) & 63, raw & 63))
+
+        e_max_a = max(w.e for w in block_a)
+        e_max_b = max(w.e for w in block_b)
+        shared_e_max = max(e_max_a, e_max_b)
+        if shared_e_max == 0:
+            shared_offset = 0
+            out_a, out_b = list(block_a), list(block_b)
+        else:
+            shared_offset = E_TARGET - shared_e_max
+            out_a = apply_offset_block(block_a, shared_offset)
+            out_b = apply_offset_block(block_b, shared_offset)
+
+        vals  = [e_max_a, e_max_b, shared_e_max, shared_offset]
+        vals += [w.codeword() for w in block_a]
+        vals += [w.codeword() for w in block_b]
+        vals += [w.codeword() for w in out_a]
+        vals += [w.codeword() for w in out_b]
+        dat_lines.append(' '.join(str(v) for v in vals))
+
+    with open(out_path, 'w') as f:
+        f.write('\n'.join(dat_lines) + '\n')
+    print(f"  V2 golden DAT written: {out_path}  ({n} two-block trials, 36 values each)")
+
+
 if __name__ == '__main__':
+    if '--v2-golden' in sys.argv:
+        # Generate two-block composition golden file for tb_horus_norm_v2.v
+        out_dir2 = os.path.dirname(os.path.abspath(__file__))
+        dat_path = os.path.join(out_dir2, "EXPNORM_V2_GOLDEN.dat")
+        gen_v2_golden_dat(dat_path)
+        sys.exit(0)
     ok = main()
     sys.exit(0 if ok else 1)
