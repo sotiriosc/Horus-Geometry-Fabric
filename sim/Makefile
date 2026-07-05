@@ -1003,3 +1003,84 @@ mlp_all: mlp_train mlp_norm_v2 mlp_infer mlp_rtl mlp_analyze
 	@echo "MLP inference demo complete (shared-offset expnorm, gate PASSED)."
 	@echo "Full arc documented in docs/MLP_INFERENCE_DEMO.md"
 	@echo ""
+
+# -----------------------------------------------------------------------------
+# FORMAT COMPARISON
+# -----------------------------------------------------------------------------
+# Head-to-head: NFE-13 vs FP8-E4M3, FP8-E5M2, BF16, INT8 on three arenas.
+# Requires: MLP_FP64.npz (produced by mlp_train).
+# Output: FORMAT_COMPARISON_RAW.csv + printed master table.
+
+# -----------------------------------------------------------------------------
+# AREA COMPARISON — multiplier-only synthesis for NFE-13, FP8-E4M3, BF16
+# -----------------------------------------------------------------------------
+
+.PHONY: synth_nfe13_mul synth_fp8_e4m3_mul synth_bf16_mul area_comparison
+
+synth_nfe13_mul:
+	$(YOSYS) -Q synth_nfe13_mul.ys 2>&1 | tee SYNTH_NFE13_MUL.log
+	@grep -E "Chip area|Number of cells" SYNTH_NFE13_MUL.log | tail -2
+
+synth_fp8_e4m3_mul:
+	$(YOSYS) -Q synth_fp8_e4m3_mul.ys 2>&1 | tee SYNTH_FP8_E4M3_MUL.log
+	@grep -E "Chip area|Number of cells" SYNTH_FP8_E4M3_MUL.log | tail -2
+
+synth_bf16_mul:
+	$(YOSYS) -Q synth_bf16_mul.ys 2>&1 | tee SYNTH_BF16_MUL.log
+	@grep -E "Chip area|Number of cells" SYNTH_BF16_MUL.log | tail -2
+
+area_comparison: synth_nfe13_mul synth_fp8_e4m3_mul synth_bf16_mul
+	@echo ""
+	@echo "=== Multiplier area comparison (Sky130 HD TT 025C 1v80) ==="
+	@echo "FP8-E4M3 ( 8b):"; grep -E "Chip area|Number of cells" SYNTH_FP8_E4M3_MUL.log | tail -2
+	@echo "NFE-13   (13b):"; grep -E "Chip area|Number of cells" SYNTH_NFE13_MUL.log | tail -2
+	@echo "BF16     (16b):"; grep -E "Chip area|Number of cells" SYNTH_BF16_MUL.log | tail -2
+	@echo "Full narrative: docs/AREA_COMPARISON.md"
+	@echo ""
+
+# -----------------------------------------------------------------------------
+# FORMAT COMPARISON
+# -----------------------------------------------------------------------------
+.PHONY: format_comparison
+format_comparison: mlp_train
+	@echo "Running format comparison (all 5 formats, 3 arenas)..."
+	$(PYTHON) format_zoo.py --out FORMAT_COMPARISON_RAW.csv
+	@echo ""
+	@echo "Results: FORMAT_COMPARISON_RAW.csv"
+	@echo "Narrative: docs/FORMAT_COMPARISON.md"
+	@echo ""
+
+# -----------------------------------------------------------------------------
+# RECURRENT NICHE
+# -----------------------------------------------------------------------------
+.PHONY: recurrent_niche
+recurrent_niche:
+	@echo "Running recurrent niche test (3 tasks, 5 formats)..."
+	$(PYTHON) recurrent_niche.py --out RECURRENT_NICHE_RAW.csv
+	@echo ""
+	@echo "Results: RECURRENT_NICHE_RAW.csv"
+	@echo "Verdict: docs/RECURRENT_NICHE.md"
+	@echo ""
+
+# -----------------------------------------------------------------------------
+# MIXED SIGN NICHE
+# -----------------------------------------------------------------------------
+.PHONY: mixed_sign
+mixed_sign:
+	@echo "Running mixed-sign niche tests (Hopfield + gradient range)..."
+	$(PYTHON) mixed_sign_niche.py    --out MIXED_SIGN_T1_RAW.csv
+	$(PYTHON) gradient_range_test.py --out MIXED_SIGN_T2_RAW.csv
+	@echo ""
+	@echo "Results: MIXED_SIGN_T1_RAW.csv  MIXED_SIGN_T2_RAW.csv"
+	@echo "Verdict: docs/MIXED_SIGN_VERDICT.md"
+	@echo ""
+
+# -----------------------------------------------------------------------------
+.PHONY: gradient_final
+gradient_final:
+	@echo "Running gradient niche final (BF16/FP16/FP32acc baselines + zero scrutiny)..."
+	$(PYTHON) gradient_range_v2.py
+	@echo ""
+	@echo "Results: GRAD_V2_MAIN.csv  GRAD_V2_ZERO.csv"
+	@echo "Verdict: docs/GRADIENT_NICHE_FINAL.md"
+	@echo ""

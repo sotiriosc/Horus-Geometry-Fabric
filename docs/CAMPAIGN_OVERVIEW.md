@@ -19,6 +19,8 @@
 | Normalizer cost vs PF-W18 | **14× cheaper** (+2.84% vs +39.6%) | `docs/EXPNORM_RESULTS.md` Task 4 |
 | Hopfield recall, 120 pattern+corruption trials | 120/120 (100%); RTL and Python model agree 0/360 divergent iterations | `docs/HOPFIELD_DEMO.md` |
 | MLP digit inference RTL accuracy | 96.39% (347/360) vs FP64 96.67% ceiling; predictions 360/360 bit-exact vs Python | `docs/MLP_INFERENCE_DEMO.md` |
+| NFE-13 vs E4M3 on inference (format war) | E4M3 wins: identical 96.39% accuracy at 0.53× NFE-13 multiplier area | `docs/FORMAT_COMPARISON.md`, `docs/AREA_COMPARISON.md` |
+| NFE-13 niche in gradient accumulation | BF16-class sign-error rate (0.0010) at 0.59× BF16 area; 3× fewer errors than E4M3+FP32acc at R=10²; ≥1.70× more area-efficient than FP16 | `docs/GRADIENT_NICHE_FINAL.md` |
 
 ---
 
@@ -217,7 +219,94 @@ appears anywhere in this repo.
 
 ---
 
-## Cross-Reference Map
+## 7. Format Comparison and Gradient-Accumulation Niche
+
+After the RTL applications were verified, the campaign ran a final phase to answer the
+hardware question directly: does NFE-13 have a defensible position against established
+floating-point formats in any workload?
+
+### Format zoo (`sim/format_zoo.py`, `docs/FORMAT_COMPARISON.md`)
+
+Five formats tested: NFE-13 (13b), FP8-E4M3 (8b), FP8-E5M2 (8b), BF16 (16b), INT8 (8b).
+Three arenas: 8×8 matvec accuracy (A), 256-cycle feedback chains (B), MLP digit
+inference (C).  Result: NFE-13 wins no arena outright.  On Arena C (MLP), NFE-13 and
+E4M3 both reach 96.39% — identical at 1.88× the E4M3 multiplier area.  That is a
+**negative result for NFE-13 on inference**, stated plainly.
+
+### Hardware area (`docs/AREA_COMPARISON.md`)
+
+Three multipliers synthesised (Yosys, Sky130 HD PDK, combinational-only):
+FP8-E4M3 = 857.1 µm²; NFE-13 = 1 611.5 µm²; BF16 = 2 740.1 µm².
+NFE-13 costs 1.88× E4M3 for identical MLP accuracy (negative) and 0.59× BF16 for a
+0.28 pp accuracy gap (a potential but narrow positive).
+
+### Recurrent niche falsification (`sim/recurrent_niche.py`, `docs/RECURRENT_NICHE.md`)
+
+Normalized-chain rematch, power iteration, ESN recall — all with lossless block-exponent
+re-grounding.  Result: **NO niche**. Lossless exponent-shift re-grounding makes all formats
+equivalent on these tasks; the mantissa-precision hypothesis was dead under normalization.
+
+### Range/normalizer budget (`sim/normalizer_budget.py`)
+
+Expansive chains with infrequent or absent normalization. Hypothesis: NFE-13's wider range
+would help when normalizer is unavailable.  Result: null — all-positive matrices saturate
+gracefully for all formats because the Perron-Frobenius theorem guarantees the dominant
+eigenvector lies in the positive orthant, so the frozen (saturated) direction is nearly
+correct.  Dynamic range matters only where saturation can destroy direction — which requires
+mixed signs.
+
+### Gradient-accumulation niche (`sim/gradient_range_v2.py`, `docs/GRADIENT_NICHE_FINAL.md`)
+
+Final experiment: mixed-sign heavy-tailed gradient accumulation (log-uniform magnitudes,
+random signs, 256 steps). Eleven format conditions including BF16, FP16, and the
+industry FP32-accumulator pattern (E4M3 inputs + float32 running sum).
+
+**Selected: Claim (a).**  
+At all tested dynamic ranges (R = 10² to 10¹⁰) and depth = 256:
+- NFE-13 and BF16 produce **statistically identical** sign-flip rates (0.0010 at R=10², 0
+  at R≥10⁴; difference within batch standard deviation).
+- NFE-13 achieves this at **0.59× BF16 multiplier area** — **1.70× more area-efficient**
+  than BF16 at the same quality level.
+- NFE-13 outperforms E4M3+FP32acc by **3× at R=10²** (0.0010 vs 0.0030 sign errors).
+  The FP32 accumulator does not close this gap because the loss happens at *encoding*,
+  before the accumulator sees the value — a better accumulator cannot recover a gradient
+  rounded away on arrival.
+- FP16 (10-bit mantissa) produces zero sign errors everywhere. Audit confirmed this is
+  genuine: ~40% of gradients flush below FP16's subnormal floor but their total signed
+  contribution is at most 2.1×10⁻⁶ per 4096-step trial — physically incapable of
+  flipping any sign the test calls valid. NFE-13 is ≥ 1.70× more area-efficient than FP16
+  (BF16 as lower bound; analytical estimate puts the central ratio at ≈ 3.8×).
+- At depth=4096 and R=10¹², BF16 (0.24%) outperforms NFE-13 (0.75%); FP16 remains zero.
+  This limitation is in the doc.
+
+### MX/block-floating-point positioning
+
+NFE-13 is a *per-element* floating-point format with individual exponents. MX (microscaling)
+formats and block-floating-point share one exponent across a group of values, reducing
+per-element overhead but requiring all elements in a group to share the same scale.
+NFE-13's per-element exponent is what gives it dynamic range for individual gradient
+contributions; in the gradient-accumulation workload, individual contributions differ by
+many orders of magnitude and cannot share a scale without losing the small ones.
+The niche sits exactly where grouped exponents cannot fully substitute: per-element
+contribution retention in heavy-tailed mixed-sign accumulation.
+
+---
+
+## Final verdict
+
+> **For single-pass inference, FP8-E4M3 with block-exponent normalization is the correct
+> choice: it matches NFE-13 accuracy at 0.53× the multiplier area, and no tested workload
+> justifies NFE-13's inference premium (`docs/FORMAT_COMPARISON.md`, `docs/AREA_COMPARISON.md`).**
+>
+> **For heavy-tailed mixed-sign gradient accumulation at standard depth (≤ 256 steps),
+> NFE-13 delivers BF16-class sign-error rates at 0.59× BF16 multiplier area and beats
+> the industry FP32-accumulator pattern (E4M3+FP32acc) by 3× at R=10², because the
+> per-gradient encoding loss precedes accumulation and no accumulator can recover it
+> (`sim/gradient_range_v2.py`, `docs/GRADIENT_NICHE_FINAL.md`).**
+
+---
+
+## Updated Cross-Reference Map
 
 | Topic | Primary doc |
 |---|---|
@@ -231,6 +320,11 @@ appears anywhere in this repo.
 | On-chip normalizer (build + synthesis) | `docs/EXPNORM_RESULTS.md` |
 | Hopfield associative recall | `docs/HOPFIELD_DEMO.md` |
 | MLP digit inference | `docs/MLP_INFERENCE_DEMO.md` |
+| Format zoo comparison (5 formats, 3 arenas) | `docs/FORMAT_COMPARISON.md` |
+| Multiplier area synthesis | `docs/AREA_COMPARISON.md` |
+| Recurrent niche (closed — no niche found) | `docs/RECURRENT_NICHE.md` |
+| Mixed-sign workloads (Hopfield + gradient) | `docs/MIXED_SIGN_VERDICT.md` |
+| Gradient niche final verdict | `docs/GRADIENT_NICHE_FINAL.md` |
 | FPGA deployment guide | `docs/FPGA_GUIDE.md` |
 | License | `docs/NOTICE.md` |
 

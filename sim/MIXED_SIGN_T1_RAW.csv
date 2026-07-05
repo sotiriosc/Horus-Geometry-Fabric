@@ -1,0 +1,21 @@
+lam,cond,rate,pos_sat,neg_sat
+1,NFE-13 bare,1.0,0,0
+1,NFE-13+norm,1.0,0,0
+1,E4M3 bare,1.0,0,0
+1,E4M3+norm,1.0,0,0
+4,NFE-13 bare,1.0,0,0
+4,NFE-13+norm,1.0,0,0
+4,E4M3 bare,1.0,0,0
+4,E4M3+norm,1.0,0,0
+16,NFE-13 bare,1.0,0,0
+16,NFE-13+norm,1.0,0,0
+16,E4M3 bare,1.0,0,0
+16,E4M3+norm,1.0,0,0
+64,NFE-13 bare,1.0,0,0
+64,NFE-13+norm,1.0,0,0
+64,E4M3 bare,1.0,0,0
+64,E4M3+norm,1.0,0,0
+256,NFE-13 bare,1.0,0,0
+256,NFE-13+norm,1.0,0,0
+256,E4M3 bare,1.0,0,0
+256,E4M3+norm,1.0,0,0
