@@ -28,7 +28,10 @@ define YOSYS_RUN
 		echo ""; \
 		exit 1; \
 	fi
-	sed 's|@LIBERTY@|$(LIBERTY)|g' $(1) | $(YOSYS) -Q /dev/stdin 2>&1 | tee $(2); \
+	@_ys_tmp=$$(mktemp /tmp/yosys_XXXXXX.ys); \
+	sed 's|@LIBERTY@|$(LIBERTY)|g' $(1) > $$_ys_tmp; \
+	$(YOSYS) -Q $$_ys_tmp 2>&1 | tee $(2); \
+	rm -f $$_ys_tmp; \
 	grep -E "Chip area|Number of cells" $(2) | tail -2 || true
 endef
 
