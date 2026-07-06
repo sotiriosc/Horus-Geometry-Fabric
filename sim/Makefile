@@ -1084,3 +1084,14 @@ gradient_final:
 	@echo "Results: GRAD_V2_MAIN.csv  GRAD_V2_ZERO.csv"
 	@echo "Verdict: docs/GRADIENT_NICHE_FINAL.md"
 	@echo ""
+
+.PHONY: compact_nfe
+compact_nfe:
+	@echo "=== Compact-NFE family evaluation ==="
+	@echo "Pre-registered criteria: docs/COMPACT_NFE_HYPOTHESIS.md"
+	@echo ""
+	$(PYTHON) compact_nfe.py
+	@echo ""
+	@echo "Results: COMPACT_NFE_RESULTS.csv"
+	@echo "Verdict: docs/COMPACT_NFE_VERDICT.md"
+	@echo ""
