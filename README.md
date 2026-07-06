@@ -1,145 +1,86 @@
-# Horus-Geometry-Fabric
+Horus-Geometry-Fabric
 
-An open-hardware 13-bit floating-point format (NFE v3) with a verified RTL datapath,
-an on-chip block-exponent normalizer, and two end-to-end inference applications — all
-run through actual Verilog simulation on Sky130 standard cells.
+I designed a custom 13-bit floating-point format (NFE-13), verified it to gate level
+on Sky130 standard cells, and then spent the rest of the campaign trying to kill it —
+against FP8, BF16, INT8, my own normalizer, and finally against floating point itself.
 
-**Full campaign story:** [docs/CAMPAIGN_OVERVIEW.md](docs/CAMPAIGN_OVERVIEW.md)
+Most of it died. What survived is documented here, with the full falsification trail.
 
----
+The two-sentence verdict: For single-pass inference, FP8-E4M3 with block-exponent
+normalization is the correct choice — it matches NFE-13's accuracy at roughly half the
+multiplier area. For heavy-tailed gradient accumulation, the 6-bit mantissa is
+load-bearing: E3M6 + shared block exponent delivers BF16-class sign-error rates at
+0.59× BF16 multiplier area, and the industry FP32-accumulator pattern cannot close the
+gap because per-gradient encoding loss precedes accumulation.
 
-## What NFE Is
+Full story, in order, every claim cited: docs/CAMPAIGN_OVERVIEW.md
 
-NFE v3 is a 13-bit float: 1 sign bit, 6-bit stored exponent (bias 32), 6-bit mantissa
-fraction.  A value encodes as `(−1)^s × (1 + f/64) × 2^(E−32)`; representable range
-≈ [2.4×10⁻⁹, 4.3×10⁹].  Sixteen `horus_nfe` cores tile into `horus_top` (188,742 µm²
-baseline, Sky130 HD TT 025C 1v80), operating on 8×8 NFE matrix–vector blocks.
+Positioning note: shared block exponents over small-float elements correspond to
+classical block floating point and the OCP Microscaling (MX) approach. This project's
+contribution is not that concept — it is an open, gate-verified implementation with a
+documented falsification trail, plus one measured boundary the MX spec doesn't cover:
+where on the per-element-exponent axis a gradient-accumulation niche lives and dies.
 
----
 
-## Headline Results
+What was verified
 
-| Claim | Measured | Evidence |
-|---|---|---|
-| NFE weight quantization | Lossless — pipeline (b) = 96.67%, identical to FP64 | `docs/MLP_INFERENCE_DEMO.md` |
-| RTL digit inference accuracy | **96.39% (347/360)** vs 96.67% FP64 ceiling | `docs/MLP_INFERENCE_DEMO.md` |
-| RTL vs Python model agreement | **360/360 predictions exact** | `sim/analyze_mlp.py` |
-| Hopfield recall (120 trials) | **120/120 (100%)**, 0 divergent iterations | `docs/HOPFIELD_DEMO.md` |
-| On-chip normalizer area | **+2.84% system area** (5,352.6 µm², 565 cells) | `docs/EXPNORM_RESULTS.md` |
-| Normalizer vs accumulator-widening | **14× cheaper** (+2.84% vs +39.6%) | `docs/ADR_002_NORMALIZATION_ARCHITECTURE.md` |
-| Feedback-chain error without normalization | 23.95% at depth 256 | `docs/SSC_RTL_VALIDATION.md` |
-| Baseline + k=8 normalization, PI workload | 1.0000 alignment (PF-W18 fails at 0.9892) | `docs/NORM_VS_PF18.md` |
-| Format war: inference | E4M3 wins — identical 96.39% at 0.53× NFE-13 multiplier area | `docs/FORMAT_COMPARISON.md`, `docs/AREA_COMPARISON.md` |
-| Gradient-accumulation niche | NFE-13 = BF16-class sign fidelity at 0.59× BF16 area; compact form E3M6+block at 10.75 eff bits | `docs/GRADIENT_NICHE_FINAL.md`, `docs/COMPACT_NFE_VERDICT.md` |
-| Dual-mode fused core | **Falsified** — 1.97× the standalone E3M6 core; fallback mandated | `docs/DUAL_CORE_RESULTS.md` |
-| Integrated tile v1 (buffer + norm inside) | **K1 falsified** — 45.1% glue; the 8×13 serial buffer alone exceeds the budget | `docs/TILE_RESULTS.md` |
-| Integrated tile v2 (respecified) | **K1 PASS** — 3,188.058 µm², glue 7.2% (budget 20%), 2,005/2,005 tests | `docs/TILE_V2_RESULTS.md` |
-| Block-FP paradigm question (E0 endpoint) | E0M6 dies to instrumented intra-block flush; E0M9 matches E3M6 at 2.29× multiplier cost — per-element exponent is load-bearing | `docs/BLOCKFP_VERDICT.md` |
+ResultMeasuredEvidenceRTL digit inference (360 images, real Verilog)96.39% vs 96.67% FP64 ceiling; 360/360 predictions match the Python model exactlydocs/MLP_INFERENCE_DEMO.mdNFE weight quantizationLossless (96.67%, identical to FP64)docs/MLP_INFERENCE_DEMO.mdHopfield associative recall through RTL120/120, 0 divergent iterations vs modeldocs/HOPFIELD_DEMO.mdOn-chip block-exponent normalizer+2.84% system area — 14× cheaper than accumulator-widening (+39.6%) at equal qualitydocs/EXPNORM_RESULTS.md, docs/ADR_002_NORMALIZATION_ARCHITECTURE.mdGradient-accumulation nicheNFE-13 = BF16-class sign fidelity at 0.59× BF16 multiplier area; compact form E3M6+block at 10.75 effective bitsdocs/GRADIENT_NICHE_FINAL.md, docs/COMPACT_NFE_VERDICT.mdHeterogeneous tile (E4M3 + E3M6 + shims)3,188 µm², glue 7.2% (budget 20%), 2,005/2,005 testsdocs/TILE_V2_RESULTS.md
 
----
+What was falsified (and kept as evidence)
 
-## 60-Second Quickstart
+HypothesisHow it diedEvidencePATH_FAST (full-mantissa accumulate)Existed only in two agreeing software models — the RTL was the only true second sourcedocs/SSC_RTL_VALIDATION.mdPF-W18 wide accumulator (ADR-001, +39.6%)Reversed within a day: baseline + k=8 normalization beat it on the eigenvector workloaddocs/NORM_VS_PF18.mdNFE-13 for inferenceE4M3 matches it at ~0.53× multiplier areadocs/FORMAT_COMPARISON.md, docs/AREA_COMPARISON.mdFused dual-mode core1.97× the standalone E3M6 core — mode-muxing two exponent disciplines doesn't collapsedocs/DUAL_CORE_RESULTS.mdTile v1 (buffer + normalizer inside)45.1% glue; the 8×13 serial block buffer alone blew the budget — block machinery belongs at system leveldocs/TILE_RESULTS.mdPure block FP (E0, mantissa-only elements)E0M6 dies to instrumented intra-block flush; E0M9 matches E3M6 only at 2.29× multiplier cost. Per-element exponent bits (≥2 marginal, ≥3 conservative) are load-bearing in silicondocs/BLOCKFP_VERDICT.md
 
-**Requirements:** Icarus Verilog ≥ 11, Python 3.8+, scikit-learn
+Method: Python model first, RTL as second source, pre-registered kill criteria,
+gates that stop broken pipelines, negative results published at the same prominence
+as wins. Declined temptations to adjust experiments are documented in the verdicts.
 
-```bash
-cd sim
+Not yet measured: timing/STA (all area comparisons are pre-timing), full-MAC-level
+area (comparisons are multiplier-centric), dynamic power (all energy statements are
+area proxies), and system-level synthesis of the shared-normalizer amortization.
 
-# MLP digit inference — train, quantize, Python gate check, RTL testbench, cross-check
-make mlp_all
-# Expect: 4-way accuracy table, 3 ASCII digit outputs, "PREDICTIONS EXACT 360/360"
 
-# Hopfield associative recall — H/T/X letter patterns, 120 corruption trials
-make hopfield_all
-# Expect: 120/120 recall, ASCII recall sequence, "0 divergent iterations"
+60-second quickstart
 
-# SSC feedback-chain validation — the gap that started everything
-make ssc_chain
-# Expect: P1 NOT CONFIRMED (PATH_FAST absent), P2/P3 CONFIRMED
+Requirements: Icarus Verilog ≥ 11, Python 3.8+, scikit-learn
 
-# Normalization sweep — the measurement that reversed ADR-001
-make norm_vs_pf18
-# Expect: 3 RTL CONFIRMED cells, baseline beats PF-W18 on PI workload
+bashcd sim
 
-# Integrated heterogeneous tile v2 (E4M3 + E3M6 cores + shims)
-make tile_v2
-# Expect: 2005/2005 tests, K1 PASS at 7.2% glue
+make mlp_all       # digit inference: train → quantize → gate check → RTL → cross-check
+                   # expect: 4-way accuracy table, ASCII digits, "PREDICTIONS EXACT 360/360"
 
-# Block floating point — the paradigm question
-make blockfp
-# Expect: E0M6 K1 FAIL (intra-block flush), E0M9 K1 PASS at 2.29× multiplier cost
-```
+make hopfield_all  # associative recall: H/T/X patterns, 120 corruption trials
+                   # expect: 120/120 recall, ASCII recall sequence, 0 divergent iterations
 
----
+make ssc_chain     # the feedback-chain validation that started everything
+                   # expect: P1 NOT CONFIRMED (the PATH_FAST gap), P2/P3 CONFIRMED
 
-## Repo Map
+make norm_vs_pf18  # the measurement that reversed ADR-001
+make tile_v2       # heterogeneous tile: 2,005/2,005 tests, K1 PASS at 7.2% glue
+make blockfp       # the paradigm question: E0M6 FAIL (flush), E0M9 PASS at 2.29× cost
 
-```
-rtl/
-  horus_nfe.v           — core MAC datapath (PATH_NFE, 6-bit product, no modification)
-  horus_norm.v          — 8-element block-exponent normalizer (v1)
-  horus_norm_v2.v       — normalizer v2: e_max_out + external-offset mode
-  horus_nfe_pf18.v      — PF-W18 accumulator variant (superseded, retained as evidence)
-  fp8_e4m3_mul.v        — FP8-E4M3FN multiplier (inference winner)
-  horus_e3m6_core.v     — E3M6 compact multiplier (gradient niche carrier)
-  horus_dual_core.v     — fused dual-mode core (falsified, retained as evidence)
-  horus_tile.v          — integrated tile v1 (K1 falsified, retained as evidence)
-  horus_tile_v2.v       — respecified tile: cores + shims + mode (K1 PASS)
-  blockfp_mul7.v/10.v   — E0M6/E0M9 mantissa multipliers (K3 iso-silicon probes)
 
-tb/
-  tb_horus_norm.v       — normalizer v1 unit tests + integration
-  tb_horus_norm_v2.v    — normalizer v2 regression + composition tests
-  tb_hopfield_recall.v  — Hopfield RTL testbench
-  tb_mlp_inference.v    — MLP digit inference RTL testbench
-  tb_second_source_chain.v — SSC feedback-chain validation
-  tb_horus_e3m6_core.v  — E3M6 core golden + directed tests
-  tb_horus_dual_core.v  — dual-core golden + mode-switch tests
-  tb_horus_tile.v       — tile v1: golden sets, mode switch, smoke tests
-  tb_horus_tile_v2.v    — tile v2: golden sets through v2 ports, mode switch
+Repo map
 
-sim/
-  Makefile              — all build targets
-  mlp_train.py          — MLP training + NFE weight export
-  mlp_infer_nfe.py      — Python inference: 4 pipelines, gate check
-  analyze_mlp.py        — RTL vs Python cross-check
-  hopfield_demo.py      — Hopfield Python model
-  expnorm_sweep.py      — normalization sweep + golden generators
-  format_zoo.py         — five-format codec zoo (single source of truth per format)
-  gradient_range_v2.py  — gradient-accumulation sweep with error bars
-  compact_nfe.py        — EnM6 compact family (E2–E6 + shared block exponent)
-  dual_core_model.py    — bit-exact dual-mode multiply model
-  tile_model.py         — bit-exact tile model (shims + shared normalizer)
-  blockfp_test.py       — E0 block-FP arenas (paradigm question)
-  HBS_CORE_MASTER_INDEX.log — one-line-per-finding campaign log
+rtl/    horus_nfe.v (original core) · horus_norm_v2.v (the anchor) ·
+        fp8_e4m3_mul.v (inference winner) · horus_e3m6_core.v (gradient carrier) ·
+        horus_tile_v2.v (integrated tile) · superseded variants retained as evidence
 
-docs/
-  CAMPAIGN_OVERVIEW.md  — the full arc, in order, with every claim cited
-  ADR_001_PF18_ADOPTION.md  — PF-W18 adopted (superseded same day)
-  ADR_002_NORMALIZATION_ARCHITECTURE.md — current architecture decision
-  SSC_RTL_VALIDATION.md — feedback-chain RTL validation (PATH_FAST gap)
-  NORM_VS_PF18.md       — normalization sweep that reversed ADR-001
-  EXPNORM_RESULTS.md    — on-chip normalizer build, verification, synthesis
-  HOPFIELD_DEMO.md      — Hopfield recall results
-  MLP_INFERENCE_DEMO.md — MLP inference results (negative result → fix → RTL)
-  FORMAT_COMPARISON.md  — format war: 5 formats, 3 arenas
-  GRADIENT_NICHE_FINAL.md — the gradient-accumulation niche verdict
-  COMPACT_NFE_VERDICT.md — compact family: exponent bits vs niche boundary
-  DUAL_CORE_RESULTS.md  — fusion falsified at 1.97× (fallback mandated)
-  TILE_RESULTS.md       — tile v1: K1 falsified at 45.1% glue, diagnosed
-  TILE_V2_RESULTS.md    — tile v2: K1 PASS at 7.2% glue
-  BLOCKFP_VERDICT.md    — block-FP paradigm question, answered
-  FPGA_GUIDE.md         — Vivado/Yosys deployment guide
-```
+tb/     one testbench per module + per application; golden-file driven
 
----
+sim/    Makefile (all targets) · format_zoo.py (single source of truth per format) ·
+        training, inference, sweep, and cross-check scripts ·
+        HBS_CORE_MASTER_INDEX.log (one line per finding, whole campaign)
 
-## License and Notice
+docs/   CAMPAIGN_OVERVIEW.md (start here) · two ADRs (one honestly reversed) ·
+        one results doc per experiment, including every negative result
 
-**License:** [CERN-OHL-S-2.0](LICENSE) — strongly-reciprocal open hardware.
+
+License and notice
+
+License: CERN-OHL-S-2.0 — strongly-reciprocal open hardware.
 Anyone may use, study, modify, and build on this work, but any derivative work
-must remain open under the same terms.  This project is released as a contribution,
-not a commercial product.  It is intended to stay in the commons permanently.
+must remain open under the same terms. This project is released as a contribution,
+not a commercial product. It is intended to stay in the commons permanently.
 
 This repository, including all RTL, simulation scripts, and results, constitutes
 a public disclosure record as of 2026-07-05.
