@@ -306,6 +306,90 @@ contribution retention in heavy-tailed mixed-sign accumulation.
 
 ---
 
+## 8. Final Integration — Heterogeneous Tile
+
+The campaign's last phase built the fallback architecture mandated by the dual-mode
+falsification (`docs/DUAL_CORE_RESULTS.md`): a real integrated tile combining the two
+confirmed-niche multipliers with a single shared normalizer.
+
+**Architecture (horus_tile v1, serial-buffer):**
+`fp8_e4m3_mul` + `horus_e3m6_core` + one `horus_norm_v2` + mode register +
+8-element NFE-13 block buffer + exponent-width shims (E4M3→NFE-13, E3M6→NFE-13).
+Python model: `sim/tile_model.py`. RTL: `rtl/horus_tile.v`.
+Testbench: `tb/tb_horus_tile.v`. Criteria: `docs/TILE_HYPOTHESIS.md`.
+
+**Verification:** 2,258 tests, 0 failures:
+- E4M3 golden sweep: 1,000/1,000 (K2 PASS)
+- E3M6 golden sweep: 1,000/1,000 (K2 PASS)
+- Mode-switch cleanliness: norm_valid fires once, buffer clears correctly (K3 PASS)
+- Smoke A: 8-element MLP inference block, E4M3 mode (K3 PASS)
+- Smoke B: 8-element gradient accumulation block, E3M6 mode (K3 PASS)
+
+**Synthesis (Sky130 HD TT/025C/1v80):**
+
+| Module | Area (µm²) | Cells | DFFs |
+|--------|-----------|-------|------|
+| fp8_e4m3_mul (revised¹) | 1,272.470 | 188 | 0 |
+| horus_e3m6_core | 1,675.357 | 232 | 0 |
+| horus_norm_v2 | 5,768.032 | 676 | 111 |
+| Sum-of-three | 8,715.859 | 1,096 | 111 |
+| horus_tile total | 12,491.981 | 1,434 | 220 |
+
+¹ fp8_e4m3_mul area rose from 857.072 µm² (original) to 1,272.470 µm² after
+fixing a subnormal-handling bug that caused incorrect zero outputs for
+sub-threshold products. The fix was required for K2 compliance.
+
+**Kill-criterion verdict:**
+
+| Criterion | Verdict |
+|-----------|---------|
+| K1: Glue ≤ 20% of sum-of-three | **FAIL** (45.1%; ceiling 20%) |
+| K2: Bit-exactness 1000/1000 × 2 modes | **PASS** |
+| K3: Single norm_v2 shared by both modes | **PASS** |
+
+**K1 diagnosis:** The 8×13-bit serial buffer (104 DFFs = 2,602 µm²) alone
+exceeds the entire K1 glue budget. The serial-buffer architecture is
+architecturally incompatible with the 20% glue bound when combined with an
+internal block normalizer.
+
+**Respecification — horus_tile_v2 (built and measured):**
+The normalizer and buffer are removed from the tile. The tile is a
+single-pair multiply-and-shim unit (fp8_e4m3_mul + horus_e3m6_core + shims +
+mode_r), outputting one NFE-13 product per cycle; block buffer and norm_v2
+move to system level (their silicon is accounted, not eliminated).
+Measured: **3,188.058 µm² total, glue 211.453 µm² = 7.2%** (budget 20%) —
+**K1 PASS**, confirming the estimate. Verification: 2,005/2,005 tests
+through v2 ports (both golden sets, mode-switch cleanliness).
+Full verdict: `docs/TILE_V2_RESULTS.md`.
+
+**Coda — the paradigm question (block floating point):**
+With the tile closed, the campaign asked whether the gradient niche's true
+home is mantissa-only elements with a shared block exponent (the E0
+endpoint the compact-NFE sweep never tested). Pre-registered in
+`docs/BLOCKFP_HYPOTHESIS.md`; answered in `docs/BLOCKFP_VERDICT.md`:
+E0M6 (7.75 eff bits) dies to instrumented intra-block flush (flip rates
+6–22× the E3M6+block reference, 11–14% of elements below half mantissa);
+E0M9 (10.75 eff bits, equal storage to E3M6) matches E3M6+block on sign
+fidelity but costs 2.29× the E3M6 core in multiplier silicon (10×10 vs
+the core's 7×7-class array — the pre-registered quadratic-growth risk,
+measured). The per-element exponent was not residual: it is the cheapest
+encoder of intra-block dynamic range, and E3M6+block stands bounded from
+below on both sides (E2 marginal, E0 broken-or-overpriced).
+
+**Campaign end state:**
+
+> The architecture is not designed — it is derived. Every component and
+> every separation was forced by a measurement: PATH_FAST did not exist
+> (§2), PF-W18 saturated on PI (§3), on-chip normalization was 14× cheaper
+> than PF-W18 (§4), NFE-13 lost inference to E4M3 at 0.53× area (§7),
+> E4M3+E3M6 fusion cost 1.97× standalone (DUAL_CORE_RESULTS), and the
+> integrated tile's serial buffer breached K1 (this section). Each
+> falsification is the evidence trail; the respecification is the deliverable.
+
+Full results: `docs/TILE_RESULTS.md`.
+
+---
+
 ## Updated Cross-Reference Map
 
 | Topic | Primary doc |
@@ -325,6 +409,12 @@ contribution retention in heavy-tailed mixed-sign accumulation.
 | Recurrent niche (closed — no niche found) | `docs/RECURRENT_NICHE.md` |
 | Mixed-sign workloads (Hopfield + gradient) | `docs/MIXED_SIGN_VERDICT.md` |
 | Gradient niche final verdict | `docs/GRADIENT_NICHE_FINAL.md` |
+| Dual-mode fusion (falsified) | `docs/DUAL_CORE_RESULTS.md` |
+| Tile pre-registered criteria | `docs/TILE_HYPOTHESIS.md` |
+| Tile v1 synthesis and verdict (K1 FAIL, diagnosed) | `docs/TILE_RESULTS.md` |
+| Tile v2 respecification (K1 PASS) | `docs/TILE_V2_RESULTS.md` |
+| Block-FP paradigm criteria | `docs/BLOCKFP_HYPOTHESIS.md` |
+| Block-FP paradigm verdict (E0 endpoint) | `docs/BLOCKFP_VERDICT.md` |
 | FPGA deployment guide | `docs/FPGA_GUIDE.md` |
 | License | `docs/NOTICE.md` |
 

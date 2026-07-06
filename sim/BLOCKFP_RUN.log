@@ -1,0 +1,108 @@
+================================================================================================
+BLOCK FLOATING POINT — E0 ENDPOINT EVALUATION
+Pre-registered criteria: docs/BLOCKFP_HYPOTHESIS.md
+================================================================================================
+
+[1/5] E0 codec unit tests (hand tables gate arenas)...
+  E0 codec unit tests: PASS (16 hand cases + 200 round-trips)
+
+[2/5] Gradient sweep (10×100 block trials, depth=256, paired seeds with E3M6+block)...
+
+[Sweep] Scalar baselines (v2-ref seeds)...
+[Sweep] Block formats (paired streams, E3M6 seed)...
+  R=1e2  E3M6+block  flip=0.0016±0.0014
+  R=1e2  E0M6+block  flip=0.0354±0.0065  K4: lost>50%=0.111 flushed=0.016
+  R=1e2  E0M9+block  flip=0.0010±0.0012  K4: lost>50%=0.061 flushed=0.002
+  R=1e4  E3M6+block  flip=0.0003±0.0008
+  R=1e4  E0M6+block  flip=0.0184±0.0046  K4: lost>50%=0.117 flushed=0.020
+  R=1e4  E0M9+block  flip=0.0001±0.0004  K4: lost>50%=0.066 flushed=0.003
+  R=1e6  E3M6+block  flip=0.0001±0.0004
+  R=1e6  E0M6+block  flip=0.0145±0.0038  K4: lost>50%=0.122 flushed=0.023
+  R=1e6  E0M9+block  flip=0.0000±0.0000  K4: lost>50%=0.072 flushed=0.006
+  R=1e8  E3M6+block  flip=0.0000±0.0000
+  R=1e8  E0M6+block  flip=0.0114±0.0028  K4: lost>50%=0.129 flushed=0.027
+  R=1e8  E0M9+block  flip=0.0000±0.0000  K4: lost>50%=0.078 flushed=0.008
+  R=1e10  E3M6+block  flip=0.0000±0.0000
+  R=1e10  E0M6+block  flip=0.0097±0.0036  K4: lost>50%=0.135 flushed=0.031
+  R=1e10  E0M9+block  flip=0.0000±0.0000  K4: lost>50%=0.082 flushed=0.011
+  Done in 25.9s
+
+[3/5] Zero-cell scrutiny (two-tier)...
+  E0M9+block R_sc=1e10 depth=256: 0/1545
+  E0M9+block R_sc=1e12 depth=256: 0/1536
+  E0M9+block R_sc=1e12 depth=1024: 2/1576
+  Done in 1.8s
+
+[4/5] Chain regression (100 chains, k=8)...
+  E3M6: mean alignment 0.9519
+  E0M6: mean alignment 0.7724
+  E0M9: mean alignment 0.9802
+  Done in 0.6s
+
+[5/5] MLP inference (360 images, K2)...
+  FP64: 96.67%
+  E3M6: 96.67%
+  E0M6: 96.39%
+  E0M9: 96.67%
+  Done in 0.0s
+
+================================================================================================
+ARENA A: GRADIENT ACCUMULATION SIGN-FLIP RATES (mean±std, depth=256)
+------------------------------------------------------------------------------------------------
+  Condition                                     R=1e2            R=1e4            R=1e6            R=1e8           R=1e10
+  NFE-13 bare (scalar, v2-ref)        0.0010±0.0030  0.0000±0.0000  0.0000±0.0000  0.0000±0.0000  0.0000±0.0000
+  E4M3+FP32acc (scalar, v2-ref)       0.0030±0.0065  0.0021±0.0042  0.0000±0.0000  0.0000±0.0000  0.0000±0.0000
+  E3M6+block                          0.0016±0.0014  0.0003±0.0008  0.0001±0.0004  0.0000±0.0000  0.0000±0.0000
+  E0M6+block                          0.0354±0.0065  0.0184±0.0046  0.0145±0.0038  0.0114±0.0028  0.0097±0.0036
+  E0M9+block                          0.0010±0.0012  0.0001±0.0004  0.0000±0.0000  0.0000±0.0000  0.0000±0.0000
+
+K1 (reference: E3M6+block; threshold = ref_mean + 2×std_pool)
+  E0M6+block: FAIL at R=1e2 (flip=0.0354 > threshold=0.0150)
+  E0M6+block: FAIL at R=1e4 (flip=0.0184 > threshold=0.0095)
+  E0M6+block: FAIL at R=1e6 (flip=0.0145 > threshold=0.0078)
+  E0M6+block: FAIL at R=1e8 (flip=0.0114 > threshold=0.0057)
+  E0M6+block: FAIL at R=1e10 (flip=0.0097 > threshold=0.0072)
+  E0M9+block: PASS at all R
+
+K4: INTRA-BLOCK FLUSH INSTRUMENTATION (per-R fraction of nonzero elements)
+  Condition            R   lost>50% bits   flushed to 0   n_nonzero
+  E0M6+block     1e2              0.1108         0.0159     2048000
+  E0M6+block     1e4              0.1171         0.0196     2048000
+  E0M6+block     1e6              0.1216         0.0231     2048000
+  E0M6+block     1e8              0.1287         0.0274     2048000
+  E0M6+block     1e10             0.1353         0.0308     2048000
+  E0M9+block     1e2              0.0614         0.0020     2048000
+  E0M9+block     1e4              0.0663         0.0030     2048000
+  E0M9+block     1e6              0.0720         0.0056     2048000
+  E0M9+block     1e8              0.0776         0.0082     2048000
+  E0M9+block     1e10             0.0824         0.0106     2048000
+
+ZERO-CELL SCRUTINY (no bare zeros; CP95 upper bounds)
+  E0M9+block     R_sc=1e6   depth=256         0/7792  CP95 UB=3.84e-04  [analytical (main sweep)]
+  E0M9+block     R_sc=1e8   depth=256         0/7779  CP95 UB=3.85e-04  [analytical (main sweep)]
+  E0M9+block     R_sc=1e10  depth=256         0/1545  CP95 UB=1.94e-03  [targeted escalation]
+  E0M9+block     R_sc=1e12  depth=1024        2/1576  CP95 UB=3.99e-03  [targeted escalation]
+  E0M9+block     R_sc=1e12  depth=256         0/1536  CP95 UB=1.95e-03  [targeted escalation]
+  E3M6+block     R_sc=1e8   depth=256         0/7779  CP95 UB=3.85e-04  [analytical (main sweep)]
+  E3M6+block     R_sc=1e10  depth=256         0/7705  CP95 UB=3.89e-04  [analytical (main sweep)]
+
+ARENA B: k=8 CHAIN REGRESSION (mean alignment, 100 chains)
+  E3M6: 0.9519
+  E0M6: 0.7724
+  E0M9: 0.9802
+
+ARENA C: MLP INFERENCE (K2 threshold ≥ 95.39%)
+  FP64: 96.67%
+  E3M6: 96.67%  K2 PASS
+  E0M6: 96.39%  K2 PASS
+  E0M9: 96.67%  K2 PASS
+
+================================================================================================
+CRITERIA SUMMARY
+================================================================================================
+  E0M6+block (7.75 eff bits): K1 FAIL  K2 PASS (96.39%)
+  E0M9+block (10.75 eff bits): K1 PASS  K2 PASS (96.67%)
+
+  Results saved → BLOCKFP_RESULTS.csv
+
+Total elapsed: 28.3s

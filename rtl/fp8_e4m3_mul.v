@@ -59,31 +59,54 @@ module fp8_e4m3_mul (
     // 4-bit × 4-bit = 8-bit product
     wire [7:0] P = m_a * m_b;
 
-    // For normals: P = (1.mmm)×(1.mmm) → result in [1.000×1.000, 1.111×1.111]
-    //   = [1.0, ~3.5] in 2.6 fixed-point scaled by 2^6.
-    // P[7]: set when P >= 128 (result exponent needs +1 normalisation).
-    wire P_msb = P[7];    // normalisation shift indicator
+    // ── Normalisation shift ───────────────────────────────────────────────────
+    // Determine how many bits to left-shift P so its leading 1 is at P[6].
+    // Normal×Normal: leading 1 always at P[7] or P[6]; shift ∈ {0,1}.
+    // Subnormal×Normal: product may have leading 1 as low as P[3] when both
+    //   hidden bits are 0 and mantissas are small.  Full leading-zero detection
+    //   is required for bit-exact agreement with fp8_e4m3_enc(a*b).
+    reg [2:0] norm_shift;
+    always @(*) begin
+        casez (P[7:0])
+            8'b1???????: norm_shift = 3'd0;  // leading 1 at P[7] → right-shift 1
+            8'b01??????: norm_shift = 3'd0;  // leading 1 at P[6] → no shift
+            8'b001?????: norm_shift = 3'd1;
+            8'b0001????: norm_shift = 3'd2;
+            8'b00001???: norm_shift = 3'd3;
+            8'b000001??: norm_shift = 3'd4;
+            8'b0000001?: norm_shift = 3'd5;
+            8'b00000001: norm_shift = 3'd6;
+            default:     norm_shift = 3'd7;  // P = 0 (zero × zero)
+        endcase
+    end
+
+    // After shift: leading 1 is at P_sh[6] (or P_sh[7] when P[7]=1)
+    wire [7:0] P_sh = P << norm_shift;  // left-shift to normalise
+
+    // For P[7]=1: product was already ≥ 2.0 in 2.6 fixed-point → right-shift 1
+    // Unified: P_msb indicates whether the MSB was set before normalisation.
+    wire P_msb = P[7];   // set when P ≥ 128 (right-shift needed)
 
     // ── Exponent arithmetic ───────────────────────────────────────────────────
-    // For normals: effective exp = e-1 for subnormals (leading 0), e for normals.
-    // Simplified: use actual_e = sub ? 1 : e  (subnormal effective exp = 1).
-    // (In full IEEE subnormal, actual_e is 1-BIAS; here we use biased form.)
-    wire [4:0] ae_a = sub_a ? 5'd1 : {1'b0, e_a};   // 5-bit effective biased exp
+    // effective biased exponent (subnormal → 1, normal → e)
+    wire [4:0] ae_a = sub_a ? 5'd1 : {1'b0, e_a};
     wire [4:0] ae_b = sub_b ? 5'd1 : {1'b0, e_b};
 
-    // e_r_unbiased = ae_a + ae_b - BIAS + P_msb  (all biased exponents)
-    // Range: [1+1-7, 15+15-7+1] = [-5, 24]  → need signed 6-bit
-    wire signed [5:0] e_r_s = $signed({1'b0, ae_a}) + $signed({1'b0, ae_b})
-                               - 6'sd7 + {5'd0, P_msb};
+    // e_r_s accounts for: normal exp sum − bias + right-shift(P_msb) − left-shift
+    // Range: [1+1-7-6, 15+15-7+1-0] = [-11, 24] → need signed 7-bit, clamp to 6.
+    wire signed [6:0] e_r_s7 = $signed({2'b00, ae_a}) + $signed({2'b00, ae_b})
+                                - 7'sd7
+                                + {6'd0, P_msb}
+                                - {4'd0, norm_shift};
+    wire signed [5:0] e_r_s  = e_r_s7[5:0];
 
     // ── Mantissa rounding ─────────────────────────────────────────────────────
-    // Extract 3-bit mantissa + 1 round bit from product.
-    // After normalisation shift:
-    //   P_msb=1: mantissa[2:0] = P[6:4], round bit = P[3]
-    //   P_msb=0: mantissa[2:0] = P[5:3], round bit = P[2]
-    wire [2:0] man_raw = P_msb ? P[6:4] : P[5:3];
-    wire       rnd_bit = P_msb ? P[3]   : P[2];
-    wire       sticky  = P_msb ? |P[2:0] : |P[1:0];
+    // After normalisation, leading 1 is at P_sh[6] (or P_sh[7] when P_msb=1).
+    //   P_msb=1: mantissa[2:0] = P_sh[6:4], round bit = P_sh[3]
+    //   P_msb=0: mantissa[2:0] = P_sh[5:3], round bit = P_sh[2]
+    wire [2:0] man_raw = P_msb ? P_sh[6:4] : P_sh[5:3];
+    wire       rnd_bit = P_msb ? P_sh[3]   : P_sh[2];
+    wire       sticky  = P_msb ? |P_sh[2:0] : |P_sh[1:0];
 
     // Round-to-nearest-even
     wire do_round = rnd_bit & (sticky | man_raw[0]);
@@ -97,16 +120,24 @@ module fp8_e4m3_mul (
     // ── Special cases ─────────────────────────────────────────────────────────
     wire is_nan   = nan_a | nan_b;
     wire is_zero  = zero_a | zero_b;
-    // Overflow: e_r_adj > 15 (max normal biased exponent is 15, but 15.110=448 is max)
-    // Actually E4M3FN max normal biased exponent is 15 (with m≠111 to avoid NaN).
-    // Overflow if e_r_adj > 15, or if e_r_adj == 15 and f_r == 3'b111 (would be NaN).
-    wire overflow = (e_r_adj > 6'sd15);
-    // Result would be NaN codeword if e_r_adj==15 and f_r==111 → clamp to 110
+    wire overflow    = (e_r_adj > 6'sd15);
     wire would_be_nan = (e_r_adj == 6'sd15) & (&f_r);
-    // Underflow/result-is-zero: e_r_adj < 1 (below min subnormal / flush to zero)
-    // Strict: e_r_adj <= 0 → flush; e_r_adj==1..0(special subnorm) handled below.
-    // Simple approximation: flush subnormal results to zero (conservative).
-    wire uflow = (e_r_adj <= 6'sd0) | is_zero;
+    // Subnormal result path (e_r_adj == 0):
+    //   The product represents 1.f_r × 2^(-7) which falls in the E4M3FN subnormal
+    //   range.  The hidden bit must be made explicit by right-shifting 1 position:
+    //   f3_sub = { 1, P_sh[5], P_sh[4] }, round = P_sh[3], sticky = |P_sh[2:0]
+    //   (for P_msb=0 case where leading 1 is at P_sh[6]; same after P_msb=1 shift).
+    wire       sub_result  = (e_r_adj == 6'sd0) & ~is_zero & ~is_nan;
+    wire [2:0] f3_sub_raw  = P_msb ? {1'b1, P_sh[6], P_sh[5]}
+                                    : {1'b1, P_sh[5], P_sh[4]};
+    wire       rnd_sub     = P_msb ? P_sh[4] : P_sh[3];
+    wire       sticky_sub  = P_msb ? |P_sh[3:0] : |P_sh[2:0];
+    wire       drnd_sub    = rnd_sub & (sticky_sub | f3_sub_raw[0]);
+    wire [3:0] f3_sub_rnd  = {1'b0, f3_sub_raw} + {3'd0, drnd_sub};
+    wire       sub_to_norm = f3_sub_rnd[3];   // carry → promote to min normal
+    wire [2:0] f3_sub      = f3_sub_rnd[2:0];
+    // Flush: e_r_adj < 0 and not subnormal boundary
+    wire uflow = (e_r_adj < 6'sd0) | is_zero;
 
     // ── Output mux ────────────────────────────────────────────────────────────
     always @(*) begin
@@ -114,8 +145,14 @@ module fp8_e4m3_mul (
             result = NAN_CW;
         else if (uflow)
             result = {s_r, 7'd0};
+        else if (sub_result) begin
+            if (sub_to_norm)
+                result = {s_r, 4'd1, 3'd0};   // promote to min normal
+            else
+                result = {s_r, 4'd0, f3_sub};  // subnormal
+        end
         else if (overflow | would_be_nan)
-            result = {s_r, MAX_CW[6:0]};   // ±448
+            result = {s_r, MAX_CW[6:0]};       // ±448
         else
             result = {s_r, e_r_adj[3:0], f_r};
     end

@@ -1095,3 +1095,201 @@ compact_nfe:
 	@echo "Results: COMPACT_NFE_RESULTS.csv"
 	@echo "Verdict: docs/COMPACT_NFE_VERDICT.md"
 	@echo ""
+
+# =============================================================================
+# DUAL-CORE — dual-mode E4M3/E3M6 compact multiplier campaign
+# =============================================================================
+# Runs full four-way synthesis (E4M3, E3M6, sum-of-two, dual) and evaluates
+# kill criteria K1/K2/K3 from docs/DUAL_CORE_HYPOTHESIS.md.
+#
+# Prerequisites:
+#   yosys 0.9+ with sky130_fd_sc_hd liberty file at:
+#     LIBERTY (see synth_*.ys scripts)
+#   iverilog 11+ (for golden vector testbenches)
+#   python3 (for dual_core_model.py golden generation)
+#
+# Targets:
+#   make dual_core_python  — run Python bit-exact model (1000/1000 × 2 modes)
+#   make dual_core_e3m6_tb — compile + run E3M6 standalone testbench
+#   make dual_core_tb      — compile + run dual-mode testbench
+#   make dual_core_synth   — four-way synthesis, print area table
+#   make dual_core         — all of the above (full campaign)
+
+SIM_E3M6_CORE := sim_horus_e3m6_core
+SIM_DUAL_CORE := sim_horus_dual_core
+
+.PHONY: dual_core_python
+dual_core_python:
+	@echo "=== Dual-core Python bit-exact model ==="
+	$(PYTHON) dual_core_model.py
+	@echo ""
+
+$(SIM_E3M6_CORE): $(TB)/tb_horus_e3m6_core.v $(RTL)/horus_e3m6_core.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+$(SIM_DUAL_CORE): $(TB)/tb_horus_dual_core.v $(RTL)/horus_dual_core.v
+	$(IVERILOG) $(IVFLAGS) -o $@ $^
+
+.PHONY: dual_core_e3m6_tb
+dual_core_e3m6_tb: $(SIM_E3M6_CORE)
+	@echo "=== E3M6 standalone core testbench ==="
+	$(VVP) $(SIM_E3M6_CORE)
+	@echo ""
+
+.PHONY: dual_core_tb
+dual_core_tb: $(SIM_DUAL_CORE)
+	@echo "=== Dual-mode core testbench (E3M6 + E4M3 modes) ==="
+	$(VVP) $(SIM_DUAL_CORE)
+	@echo ""
+
+.PHONY: dual_core_synth
+dual_core_synth:
+	@echo "=== Four-way synthesis (Sky130 HD TT 025C 1v80) ==="
+	@echo ""
+	@echo "--- E4M3 core (fp8_e4m3_mul) ---"
+	$(YOSYS) -Q synth_fp8_e4m3_mul.ys 2>&1 | tee SYNTH_FP8_E4M3_MUL.log | \
+	    grep -E "Chip area|Number of cells"
+	@echo ""
+	@echo "--- E3M6 core (horus_e3m6_core) ---"
+	$(YOSYS) -Q synth_horus_e3m6_core.ys 2>&1 | tee SYNTH_E3M6_CORE.log | \
+	    grep -E "Chip area|Number of cells"
+	@echo ""
+	@echo "--- Dual core (horus_dual_core) ---"
+	$(YOSYS) -Q synth_horus_dual_core.ys 2>&1 | tee SYNTH_DUAL_CORE.log | \
+	    grep -E "Chip area|Number of cells"
+	@echo ""
+	@echo "--- Dual core inference-only / K3 probe ---"
+	$(YOSYS) -Q synth_dual_core_infer_only.ys 2>&1 | tee SYNTH_DUAL_CORE_K3.log | \
+	    grep -E "Chip area|Number of cells"
+	@echo ""
+	@echo "Full verdict: docs/DUAL_CORE_RESULTS.md"
+	@echo ""
+
+.PHONY: dual_core
+dual_core: dual_core_python dual_core_e3m6_tb dual_core_tb dual_core_synth
+	@echo "======================================================"
+	@echo "  Dual-Core Campaign Complete"
+	@echo "======================================================"
+	@echo "  Python:     1000/1000 E3M6 + 1000/1000 E4M3"
+	@echo "  E3M6 RTL:   1009/1009 tests"
+	@echo "  Dual RTL:   2056/2056 tests"
+	@echo "  Synthesis:  Four-way table (see SYNTH_*.log files)"
+	@echo "  Verdict:    docs/DUAL_CORE_RESULTS.md"
+	@echo "  Hypothesis: docs/DUAL_CORE_HYPOTHESIS.md"
+	@echo "======================================================"
+	@echo ""
+
+# ─────────────────────────────────────────────────────────────────
+#  TILE target — heterogeneous tile (fp8_e4m3_mul + horus_e3m6_core
+#               + shared horus_norm_v2)
+# ─────────────────────────────────────────────────────────────────
+
+.PHONY: tile_python
+tile_python:
+	@echo "--- Tile Python model (sim/tile_model.py) ---"
+	$(PYTHON) tile_model.py
+
+.PHONY: tile_tb
+tile_tb: TILE_E4M3_OPS.hex TILE_E4M3_OUT.hex TILE_E3M6_OPS.hex TILE_E3M6_OUT.hex
+	@echo "--- Tile RTL testbench (tb/tb_horus_tile.v) ---"
+	$(IVERILOG) -g2012 -o sim_horus_tile \
+	    ../tb/tb_horus_tile.v \
+	    ../rtl/horus_tile.v \
+	    ../rtl/fp8_e4m3_mul.v \
+	    ../rtl/horus_e3m6_core.v \
+	    ../rtl/horus_norm_v2.v
+	$(VVP) sim_horus_tile
+
+TILE_E4M3_OPS.hex TILE_E4M3_OUT.hex TILE_E3M6_OPS.hex TILE_E3M6_OUT.hex:
+	$(PYTHON) tile_model.py
+
+.PHONY: tile_synth
+tile_synth:
+	@echo "--- Tile synthesis (horus_tile) ---"
+	$(YOSYS) -Q synth_horus_tile.ys 2>&1 | tee SYNTH_HORUS_TILE.log | \
+	    grep -E "Chip area|Number of cells"
+	@echo ""
+	@echo "Full verdict: docs/TILE_RESULTS.md"
+
+# ─────────────────────────────────────────────────────────────────
+#  TILE V2 target — respecified tile (multipliers + shims + mode;
+#                   buffer and norm_v2 hoisted to system level)
+# ─────────────────────────────────────────────────────────────────
+
+.PHONY: tile_v2_tb
+tile_v2_tb:
+	@echo "--- Tile v2 golden generation (sim/tile_v2_golden.py) ---"
+	$(PYTHON) tile_v2_golden.py
+	@echo "--- Tile v2 RTL testbench (tb/tb_horus_tile_v2.v) ---"
+	$(IVERILOG) -g2012 -o sim_horus_tile_v2 \
+	    ../tb/tb_horus_tile_v2.v \
+	    ../rtl/horus_tile_v2.v \
+	    ../rtl/fp8_e4m3_mul.v \
+	    ../rtl/horus_e3m6_core.v
+	$(VVP) sim_horus_tile_v2
+
+.PHONY: tile_v2_synth
+tile_v2_synth:
+	@echo "--- Tile v2 synthesis (horus_tile_v2) ---"
+	$(YOSYS) -Q synth_horus_tile_v2.ys 2>&1 | tee SYNTH_HORUS_TILE_V2.log | \
+	    grep -E "Chip area|Number of cells"
+
+.PHONY: tile_v2
+tile_v2: tile_v2_tb tile_v2_synth
+	@echo "======================================================"
+	@echo "  Tile v2 Campaign Complete"
+	@echo "======================================================"
+	@echo "  RTL:       2005/2005 tests (K2 conventions carried)"
+	@echo "  Synthesis: 3,188.058 um2 total; glue 211.453 um2"
+	@echo "  K1:        PASS (7.2% glue; budget 20%)"
+	@echo "  Verdict:   docs/TILE_V2_RESULTS.md"
+	@echo "======================================================"
+	@echo ""
+
+# ─────────────────────────────────────────────────────────────────
+#  BLOCKFP target — E0 endpoint / paradigm question
+# ─────────────────────────────────────────────────────────────────
+
+.PHONY: blockfp_python
+blockfp_python:
+	@echo "--- Block-FP arenas (sim/blockfp_test.py) ---"
+	$(PYTHON) blockfp_test.py
+
+.PHONY: blockfp_synth
+blockfp_synth:
+	@echo "--- 7x7 signed mantissa multiplier (E0M6) ---"
+	$(YOSYS) -Q synth_blockfp_mul7.ys 2>&1 | tee SYNTH_BLOCKFP_MUL7.log | \
+	    grep -E "Chip area|Number of cells"
+	@echo "--- 10x10 signed mantissa multiplier (E0M9) ---"
+	$(YOSYS) -Q synth_blockfp_mul10.ys 2>&1 | tee SYNTH_BLOCKFP_MUL10.log | \
+	    grep -E "Chip area|Number of cells"
+
+.PHONY: blockfp
+blockfp: blockfp_python blockfp_synth
+	@echo "======================================================"
+	@echo "  Block-FP Campaign Complete"
+	@echo "======================================================"
+	@echo "  K1: E0M6 FAIL (all R) / E0M9 PASS"
+	@echo "  K2: both PASS (96.39% / 96.67%)"
+	@echo "  K3: 1848.022 / 3836.179 um2 vs E3M6 core 1675.357"
+	@echo "  K4: flush instrumented (see BLOCKFP_RESULTS.csv)"
+	@echo "  Verdict:    docs/BLOCKFP_VERDICT.md"
+	@echo "  Hypothesis: docs/BLOCKFP_HYPOTHESIS.md"
+	@echo "======================================================"
+	@echo ""
+
+.PHONY: tile
+tile: tile_python tile_tb tile_synth
+	@echo "======================================================"
+	@echo "  Tile Campaign Complete"
+	@echo "======================================================"
+	@echo "  Python:    2000/2000 golden (1000/E4M3 + 1000/E3M6)"
+	@echo "  RTL:       2258/2258 tests (K2 PASS, K3 PASS)"
+	@echo "  Synthesis: see SYNTH_HORUS_TILE.log"
+	@echo "  K1:        FAIL (45.1% glue; budget 20%)"
+	@echo "  K2:        PASS (2258/2258)"
+	@echo "  K3:        PASS (single norm_v2, both modes)"
+	@echo "  Verdict:   docs/TILE_RESULTS.md"
+	@echo "  Criteria:  docs/TILE_HYPOTHESIS.md"
+	@echo "======================================================"
+	@echo ""

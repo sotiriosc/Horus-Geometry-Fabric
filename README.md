@@ -29,6 +29,12 @@ baseline, Sky130 HD TT 025C 1v80), operating on 8×8 NFE matrix–vector blocks.
 | Normalizer vs accumulator-widening | **14× cheaper** (+2.84% vs +39.6%) | `docs/ADR_002_NORMALIZATION_ARCHITECTURE.md` |
 | Feedback-chain error without normalization | 23.95% at depth 256 | `docs/SSC_RTL_VALIDATION.md` |
 | Baseline + k=8 normalization, PI workload | 1.0000 alignment (PF-W18 fails at 0.9892) | `docs/NORM_VS_PF18.md` |
+| Format war: inference | E4M3 wins — identical 96.39% at 0.53× NFE-13 multiplier area | `docs/FORMAT_COMPARISON.md`, `docs/AREA_COMPARISON.md` |
+| Gradient-accumulation niche | NFE-13 = BF16-class sign fidelity at 0.59× BF16 area; compact form E3M6+block at 10.75 eff bits | `docs/GRADIENT_NICHE_FINAL.md`, `docs/COMPACT_NFE_VERDICT.md` |
+| Dual-mode fused core | **Falsified** — 1.97× the standalone E3M6 core; fallback mandated | `docs/DUAL_CORE_RESULTS.md` |
+| Integrated tile v1 (buffer + norm inside) | **K1 falsified** — 45.1% glue; the 8×13 serial buffer alone exceeds the budget | `docs/TILE_RESULTS.md` |
+| Integrated tile v2 (respecified) | **K1 PASS** — 3,188.058 µm², glue 7.2% (budget 20%), 2,005/2,005 tests | `docs/TILE_V2_RESULTS.md` |
+| Block-FP paradigm question (E0 endpoint) | E0M6 dies to instrumented intra-block flush; E0M9 matches E3M6 at 2.29× multiplier cost — per-element exponent is load-bearing | `docs/BLOCKFP_VERDICT.md` |
 
 ---
 
@@ -54,6 +60,14 @@ make ssc_chain
 # Normalization sweep — the measurement that reversed ADR-001
 make norm_vs_pf18
 # Expect: 3 RTL CONFIRMED cells, baseline beats PF-W18 on PI workload
+
+# Integrated heterogeneous tile v2 (E4M3 + E3M6 cores + shims)
+make tile_v2
+# Expect: 2005/2005 tests, K1 PASS at 7.2% glue
+
+# Block floating point — the paradigm question
+make blockfp
+# Expect: E0M6 K1 FAIL (intra-block flush), E0M9 K1 PASS at 2.29× multiplier cost
 ```
 
 ---
@@ -66,6 +80,12 @@ rtl/
   horus_norm.v          — 8-element block-exponent normalizer (v1)
   horus_norm_v2.v       — normalizer v2: e_max_out + external-offset mode
   horus_nfe_pf18.v      — PF-W18 accumulator variant (superseded, retained as evidence)
+  fp8_e4m3_mul.v        — FP8-E4M3FN multiplier (inference winner)
+  horus_e3m6_core.v     — E3M6 compact multiplier (gradient niche carrier)
+  horus_dual_core.v     — fused dual-mode core (falsified, retained as evidence)
+  horus_tile.v          — integrated tile v1 (K1 falsified, retained as evidence)
+  horus_tile_v2.v       — respecified tile: cores + shims + mode (K1 PASS)
+  blockfp_mul7.v/10.v   — E0M6/E0M9 mantissa multipliers (K3 iso-silicon probes)
 
 tb/
   tb_horus_norm.v       — normalizer v1 unit tests + integration
@@ -73,6 +93,10 @@ tb/
   tb_hopfield_recall.v  — Hopfield RTL testbench
   tb_mlp_inference.v    — MLP digit inference RTL testbench
   tb_second_source_chain.v — SSC feedback-chain validation
+  tb_horus_e3m6_core.v  — E3M6 core golden + directed tests
+  tb_horus_dual_core.v  — dual-core golden + mode-switch tests
+  tb_horus_tile.v       — tile v1: golden sets, mode switch, smoke tests
+  tb_horus_tile_v2.v    — tile v2: golden sets through v2 ports, mode switch
 
 sim/
   Makefile              — all build targets
@@ -81,6 +105,12 @@ sim/
   analyze_mlp.py        — RTL vs Python cross-check
   hopfield_demo.py      — Hopfield Python model
   expnorm_sweep.py      — normalization sweep + golden generators
+  format_zoo.py         — five-format codec zoo (single source of truth per format)
+  gradient_range_v2.py  — gradient-accumulation sweep with error bars
+  compact_nfe.py        — EnM6 compact family (E2–E6 + shared block exponent)
+  dual_core_model.py    — bit-exact dual-mode multiply model
+  tile_model.py         — bit-exact tile model (shims + shared normalizer)
+  blockfp_test.py       — E0 block-FP arenas (paradigm question)
   HBS_CORE_MASTER_INDEX.log — one-line-per-finding campaign log
 
 docs/
@@ -92,6 +122,13 @@ docs/
   EXPNORM_RESULTS.md    — on-chip normalizer build, verification, synthesis
   HOPFIELD_DEMO.md      — Hopfield recall results
   MLP_INFERENCE_DEMO.md — MLP inference results (negative result → fix → RTL)
+  FORMAT_COMPARISON.md  — format war: 5 formats, 3 arenas
+  GRADIENT_NICHE_FINAL.md — the gradient-accumulation niche verdict
+  COMPACT_NFE_VERDICT.md — compact family: exponent bits vs niche boundary
+  DUAL_CORE_RESULTS.md  — fusion falsified at 1.97× (fallback mandated)
+  TILE_RESULTS.md       — tile v1: K1 falsified at 45.1% glue, diagnosed
+  TILE_V2_RESULTS.md    — tile v2: K1 PASS at 7.2% glue
+  BLOCKFP_VERDICT.md    — block-FP paradigm question, answered
   FPGA_GUIDE.md         — Vivado/Yosys deployment guide
 ```
 
