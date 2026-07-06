@@ -36,7 +36,7 @@ Yosys ≥ 0.9, Sky130 HD liberty
 ```bash
 cd sim
 
-# Block-FP paradigm question (Python arenas + Yosys synthesis)
+# Block-FP: does the per-element exponent matter? (Python arenas + Yosys synthesis)
 # Runtime: ~29s
 make blockfp
 # Expect: "E0M6+block (7.75 eff bits): K1 FAIL"
