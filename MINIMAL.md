@@ -1,5 +1,9 @@
 # Horus-Geometry-Fabric — Minimal Entry Point
 
+> **Acknowledgment**  
+> Developed with AI assistance (Claude via Cursor) for RTL verification, testing, and documentation.  
+> All architectural decisions and final verification by the author.
+
 ## The claim
 
 NFE-13 (13-bit float: 1s 6e 6f) matches BF16 sign-error rates in mixed-sign

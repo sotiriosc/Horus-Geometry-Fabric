@@ -9,6 +9,10 @@ encoding, before the accumulator sees the value.
 **15-minute version: [MINIMAL.md](MINIMAL.md)**  
 Full trail: [docs/CAMPAIGN_OVERVIEW.md](docs/CAMPAIGN_OVERVIEW.md)
 
+> **Acknowledgment**  
+> Developed with AI assistance (Claude via Cursor) for RTL verification, testing, and documentation.  
+> All architectural decisions and final verification by the author.
+
 ---
 
 ## Scope and limitations

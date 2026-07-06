@@ -5,3 +5,7 @@ is released as a contribution, not a commercial product. It is intended to
 stay in the commons permanently.
 
 **Author:** Sotirios Chortogiannos
+
+**Acknowledgment:** Developed with AI assistance (Claude via Cursor) for RTL
+verification, testing, and documentation. All architectural decisions and
+final verification by the author.
