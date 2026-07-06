@@ -6,8 +6,8 @@ heavy-tailed gradient accumulation at **0.59× BF16 multiplier area**
 The FP32-accumulator pattern does not close this gap — the loss happens at
 encoding, before the accumulator sees the value.
 
-→ **[MINIMAL.md](MINIMAL.md)** — claim, two falsifications, two reproduce commands  
-→ **[docs/CAMPAIGN_OVERVIEW.md](docs/CAMPAIGN_OVERVIEW.md)** — the full trail (long)
+**15-minute version: [MINIMAL.md](MINIMAL.md)**  
+Full trail: [docs/CAMPAIGN_OVERVIEW.md](docs/CAMPAIGN_OVERVIEW.md)
 
 ---
 
