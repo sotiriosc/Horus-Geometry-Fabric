@@ -28,7 +28,8 @@ define YOSYS_RUN
 		echo ""; \
 		exit 1; \
 	fi
-	sed 's|@LIBERTY@|$(LIBERTY)|g' $(1) | $(YOSYS) -Q /dev/stdin 2>&1 | tee $(2)
+	sed 's|@LIBERTY@|$(LIBERTY)|g' $(1) | $(YOSYS) -Q /dev/stdin 2>&1 | tee $(2); \
+	grep -E "Chip area|Number of cells" $(2) | tail -2 || true
 endef
 
 RTL      := ../rtl
@@ -1161,20 +1162,16 @@ dual_core_synth:
 	@echo "=== Four-way synthesis (Sky130 HD TT 025C 1v80) ==="
 	@echo ""
 	@echo "--- E4M3 core (fp8_e4m3_mul) ---"
-	$(call YOSYS_RUN,synth_fp8_e4m3_mul.ys,SYNTH_FP8_E4M3_MUL.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_fp8_e4m3_mul.ys,SYNTH_FP8_E4M3_MUL.log)
 	@echo ""
 	@echo "--- E3M6 core (horus_e3m6_core) ---"
-	$(call YOSYS_RUN,synth_horus_e3m6_core.ys,SYNTH_E3M6_CORE.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_horus_e3m6_core.ys,SYNTH_E3M6_CORE.log)
 	@echo ""
 	@echo "--- Dual core (horus_dual_core) ---"
-	$(call YOSYS_RUN,synth_horus_dual_core.ys,SYNTH_DUAL_CORE.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_horus_dual_core.ys,SYNTH_DUAL_CORE.log)
 	@echo ""
 	@echo "--- Dual core inference-only / K3 probe ---"
-	$(call YOSYS_RUN,synth_dual_core_infer_only.ys,SYNTH_DUAL_CORE_K3.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_dual_core_infer_only.ys,SYNTH_DUAL_CORE_K3.log)
 	@echo ""
 	@echo "Full verdict: docs/DUAL_CORE_RESULTS.md"
 	@echo ""
@@ -1220,8 +1217,7 @@ TILE_E4M3_OPS.hex TILE_E4M3_OUT.hex TILE_E3M6_OPS.hex TILE_E3M6_OUT.hex:
 .PHONY: tile_synth
 tile_synth:
 	@echo "--- Tile synthesis (horus_tile) ---"
-	$(call YOSYS_RUN,synth_horus_tile.ys,SYNTH_HORUS_TILE.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_horus_tile.ys,SYNTH_HORUS_TILE.log)
 	@echo ""
 	@echo "Full verdict: docs/TILE_RESULTS.md"
 
@@ -1245,8 +1241,7 @@ tile_v2_tb:
 .PHONY: tile_v2_synth
 tile_v2_synth:
 	@echo "--- Tile v2 synthesis (horus_tile_v2) ---"
-	$(call YOSYS_RUN,synth_horus_tile_v2.ys,SYNTH_HORUS_TILE_V2.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_horus_tile_v2.ys,SYNTH_HORUS_TILE_V2.log)
 
 .PHONY: tile_v2
 tile_v2: tile_v2_tb tile_v2_synth
@@ -1272,11 +1267,9 @@ blockfp_python:
 .PHONY: blockfp_synth
 blockfp_synth:
 	@echo "--- 7x7 signed mantissa multiplier (E0M6) ---"
-	$(call YOSYS_RUN,synth_blockfp_mul7.ys,SYNTH_BLOCKFP_MUL7.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_blockfp_mul7.ys,SYNTH_BLOCKFP_MUL7.log)
 	@echo "--- 10x10 signed mantissa multiplier (E0M9) ---"
-	$(call YOSYS_RUN,synth_blockfp_mul10.ys,SYNTH_BLOCKFP_MUL10.log) | \
-	    grep -E "Chip area|Number of cells"
+	$(call YOSYS_RUN,synth_blockfp_mul10.ys,SYNTH_BLOCKFP_MUL10.log)
 
 .PHONY: blockfp
 blockfp: blockfp_python blockfp_synth
