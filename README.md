@@ -1,48 +1,64 @@
 # Horus-Geometry-Fabric
 
-NFE-13 (13-bit float: 1s 6e 6f) matches BF16 sign-error rates in mixed-sign
-heavy-tailed gradient accumulation at **0.59× BF16 multiplier area**
-(1,611.5 µm² vs 2,740.1 µm², Yosys/Sky130 HD).
-The FP32-accumulator pattern does not close this gap — the loss happens at
-encoding, before the accumulator sees the value.
-
-**15-minute version: [MINIMAL.md](MINIMAL.md)**  
-Full trail: [docs/CAMPAIGN_OVERVIEW.md](docs/CAMPAIGN_OVERVIEW.md)
-
 > **Acknowledgment**  
 > Developed with AI assistance (Claude via Cursor) for RTL verification, testing, and documentation.  
 > All architectural decisions and final verification by the author.
 
----
+I designed a custom 13-bit floating-point format (NFE-13), verified it to gate level
+on Sky130 standard cells, and then spent the rest of the campaign trying to kill it —
+against FP8, BF16, INT8, my own normalizer, and finally against floating point itself.
 
-## Scope and limitations
+Most of it died. What survived is documented here, with the full falsification trail.
 
-Read this before the results.
+The two-sentence verdict: For single-pass inference, FP8-E4M3 with block-exponent
+normalization is the correct choice — it matches NFE-13's accuracy at roughly half the
+multiplier area. For heavy-tailed gradient accumulation, the 6-bit mantissa is
+load-bearing: E3M6 + shared block exponent delivers BF16-class sign-error rates at
+0.59× BF16 multiplier area, and the industry FP32-accumulator pattern cannot close the
+gap because per-gradient encoding loss precedes accumulation.
 
-- **Timing not measured.** OpenSTA is not available in this environment.
-  No frequency claim appears anywhere in this repo.
-- **Comparisons are multiplier area only.** Numbers are from Yosys synthesis
-  of the combinational multiply stage under Sky130 HD TT 025C 1v80.
-  Full MAC area (adder trees, registers, accumulator, routing) is not measured.
-  The FP32-accumulator pattern adds an unmeasured FP32 accumulator on top of
-  the E4M3 multiplier.
-- **Energy statements are area proxies.** Gated-area fractions are reported
-  as proxies only. No dynamic power number appears anywhere in this repo.
-- **Workloads are small-scale.** Gradient sweep: 256-step single-element
-  accumulator, depth ≤ 4096, log-uniform mixed-sign gradients.
-  Inference: 64→16→10 MLP, sklearn digits (8×8 pixels, 360 test images).
-  Matrix operations: 8×8 NFE blocks. These are not production-scale workloads.
-- **No claim holds at depth > 256 without qualification.** At depth 4096
-  and R = 10¹², BF16 is 3.1× better than NFE-13; FP16 remains zero.
-  The main claim (BF16-class at 0.59× area) is stated and verified for
-  depth ≤ 256.
+**15-minute version:** [MINIMAL.md](MINIMAL.md)  
+Full story, in order, every claim cited: [docs/CAMPAIGN_OVERVIEW.md](docs/CAMPAIGN_OVERVIEW.md)
 
----
+Positioning note: shared block exponents over small-float elements correspond to
+classical block floating point and the OCP Microscaling (MX) approach. This project's
+contribution is not that concept — it is an open, gate-verified implementation with a
+documented falsification trail, plus one measured boundary the MX spec doesn't cover:
+where on the per-element-exponent axis a gradient-accumulation niche lives and dies.
 
-## Reproduce the main result
+## What was verified
 
-**Requirements:** Icarus Verilog ≥ 11, Python 3.8+, numpy, scikit-learn,
-Yosys ≥ 0.9, Sky130 HD liberty
+| Result | Measured | Evidence |
+|--------|----------|----------|
+| RTL digit inference (360 images, real Verilog) | 96.39% vs 96.67% FP64 ceiling; 360/360 predictions match the Python model exactly | `docs/MLP_INFERENCE_DEMO.md` |
+| NFE weight quantization | Lossless (96.67%, identical to FP64) | `docs/MLP_INFERENCE_DEMO.md` |
+| Hopfield associative recall through RTL | 120/120, 0 divergent iterations vs model | `docs/HOPFIELD_DEMO.md` |
+| On-chip block-exponent normalizer | +2.84% system area — 14× cheaper than accumulator-widening (+39.6%) at equal quality | `docs/EXPNORM_RESULTS.md`, `docs/ADR_002_NORMALIZATION_ARCHITECTURE.md` |
+| Gradient-accumulation niche | NFE-13 = BF16-class sign fidelity at 0.59× BF16 multiplier area; compact form E3M6+block at 10.75 effective bits | `docs/GRADIENT_NICHE_FINAL.md`, `docs/COMPACT_NFE_VERDICT.md` |
+| Heterogeneous tile (E4M3 + E3M6 + shims) | 3,188 µm², glue 7.2% (budget 20%), 2,005/2,005 tests | `docs/TILE_V2_RESULTS.md` |
+
+## What was falsified (and kept as evidence)
+
+| Hypothesis | How it died | Evidence |
+|------------|-------------|----------|
+| PATH_FAST (full-mantissa accumulate) | Existed only in two agreeing software models — the RTL was the only true second source | `docs/SSC_RTL_VALIDATION.md` |
+| PF-W18 wide accumulator (ADR-001, +39.6%) | Reversed within a day: baseline + k=8 normalization beat it on the eigenvector workload | `docs/NORM_VS_PF18.md` |
+| NFE-13 for inference | E4M3 matches it at ~0.53× multiplier area | `docs/FORMAT_COMPARISON.md`, `docs/AREA_COMPARISON.md` |
+| Fused dual-mode core | 1.97× the standalone E3M6 core — mode-muxing two exponent disciplines doesn't collapse | `docs/DUAL_CORE_RESULTS.md` |
+| Tile v1 (buffer + normalizer inside) | 45.1% glue; the 8×13 serial block buffer alone blew the budget — block machinery belongs at system level | `docs/TILE_RESULTS.md` |
+| Pure block FP (E0, mantissa-only elements) | E0M6 dies to instrumented intra-block flush; E0M9 matches E3M6 only at 2.29× multiplier cost. Per-element exponent bits (≥2 marginal, ≥3 conservative) are load-bearing in silicon | `docs/BLOCKFP_VERDICT.md` |
+
+Method: Python model first, RTL as second source, pre-registered kill criteria,
+gates that stop broken pipelines, negative results published at the same prominence
+as wins. Declined temptations to adjust experiments are documented in the verdicts.
+
+Not yet measured: timing/STA (all area comparisons are pre-timing), full-MAC-level
+area (comparisons are multiplier-centric), dynamic power (all energy statements are
+area proxies), and system-level synthesis of the shared-normalizer amortization.
+
+## 60-second quickstart
+
+**Requirements:** Icarus Verilog ≥ 11, Python 3.8+, numpy, scikit-learn, Yosys ≥ 0.9, Sky130 HD liberty
 
 ```bash
 git clone https://github.com/sotiriosc/Horus-Geometry-Fabric.git
@@ -54,99 +70,38 @@ cd sim
 ```
 
 ```bash
-# Block-FP: does the per-element exponent matter? (~29s)
-make blockfp
-# Expect: "E0M6+block (7.75 eff bits): K1 FAIL"
-#         "E0M9+block (10.75 eff bits): K1 PASS"
-
-# Gradient-accumulation niche (~2.5 min)
-make gradient_final
-# Expect: NFE-13 bare = 0.0010 at R=10²
-#         BF16 bare   = 0.0010 (tied)
-#         E4M3+FP32acc = 0.0030 (3× worse)
+make mlp_all         # ~4s   — digit inference; expect "PREDICTIONS EXACT 360/360"
+make hopfield_all    # ~5s   — associative recall; expect 120/120, 0 divergent iterations
+make ssc_chain       # ~2s   — feedback-chain validation; P1 NOT CONFIRMED, P2/P3 CONFIRMED
+make norm_vs_pf18    # ~35s  — measurement that reversed ADR-001
+make tile_v2         # ~1s   — heterogeneous tile; 2,005/2,005 tests, K1 PASS at 7.2% glue
+make blockfp         # ~29s  — E0M6 FAIL (flush), E0M9 PASS at 2.29× cost
+make gradient_final  # ~2.5 min — gradient-accumulation niche sweep
 ```
-
----
-
-## Additional verified targets (fresh-clone runtimes)
-
-```bash
-make mlp_all         # ~4s   — 96.39% RTL accuracy, PREDICTIONS EXACT 360/360
-make hopfield_all    # ~5s   — 120/120 recall, 0 divergent iterations
-make tile_v2         # ~1s   — 2005/2005 tests, K1 PASS 7.2% glue
-make norm_vs_pf18    # ~35s  — 3 RTL CONFIRMED cells
-make ssc_chain       # ~2s   — P1 NOT CONFIRMED (PATH_FAST absent), P2/P3 CONFIRMED
-```
-
----
-
-## What NFE is
-
-NFE v3 is a 13-bit float: 1 sign bit, 6-bit stored exponent (bias 32), 6-bit
-mantissa fraction. Encodes as `(−1)^s × (1 + f/64) × 2^(E−32)`.
-Range ≈ [2.4×10⁻⁹, 4.3×10⁹]. Sixteen `horus_nfe` cores tile into `horus_top`
-(188,742 µm² baseline, Sky130 HD TT 025C 1v80), operating on 8×8 blocks.
-
----
-
-## Results summary
-
-| Result | Measured | Source |
-|--------|----------|--------|
-| Gradient niche — NFE-13 vs BF16 sign-error rate | 0.0010 vs 0.0010 at R=10² (tied) | `docs/GRADIENT_NICHE_FINAL.md` |
-| NFE-13 multiplier area vs BF16 | 1,611.5 µm² vs 2,740.1 µm² = **0.59×** | `docs/AREA_COMPARISON.md` |
-| NFE-13 vs E4M3+FP32acc at R=10² | 0.0010 vs 0.0030 — 3× fewer sign errors | `docs/GRADIENT_NICHE_FINAL.md` |
-| Inference: NFE-13 vs E4M3 | E4M3 wins — same 96.39% at **0.53× NFE-13 area** | `docs/FORMAT_COMPARISON.md` |
-| Dual-core fusion overhead | **1.97× standalone E3M6** — falsified | `docs/DUAL_CORE_RESULTS.md` |
-| Block-FP E0M6 gradient niche | **FAIL** — intra-block flush, 6–22× reference rate | `docs/BLOCKFP_VERDICT.md` |
-| Block-FP E0M9 vs E3M6 area | E0M9 passes K1 at **2.29× E3M6 multiplier area** | `docs/BLOCKFP_VERDICT.md` |
-| Tile v2 | 2,005/2,005 tests, K1 PASS at 7.2% glue, 3,188 µm² total | `docs/TILE_V2_RESULTS.md` |
-| RTL MLP inference | 96.39% (347/360), 360/360 predictions exact vs Python | `docs/MLP_INFERENCE_DEMO.md` |
-| Hopfield recall | 120/120 (100%), 0 divergent iterations | `docs/HOPFIELD_DEMO.md` |
-
----
 
 ## Repo map
 
 ```
-rtl/
-  horus_nfe.v           — core MAC datapath (PATH_NFE, 6-bit product)
-  horus_norm_v2.v       — block-exponent normalizer v2 (shared-offset mode)
-  fp8_e4m3_mul.v        — FP8-E4M3FN multiplier (inference winner)
-  horus_e3m6_core.v     — E3M6 compact multiplier (gradient niche carrier)
-  horus_dual_core.v     — fused dual-mode core (falsified, retained as evidence)
-  horus_tile_v2.v       — respecified tile: cores + shims + mode (K1 PASS)
-  blockfp_mul7.v        — E0M6 mantissa multiplier (K3 iso-silicon probe)
-  blockfp_mul10.v       — E0M9 mantissa multiplier (K3 iso-silicon probe)
+rtl/    horus_nfe.v (original core) · horus_norm_v2.v (the anchor) ·
+        fp8_e4m3_mul.v (inference winner) · horus_e3m6_core.v (gradient carrier) ·
+        horus_tile_v2.v (integrated tile) · superseded variants retained as evidence
 
-sim/
-  Makefile              — all build targets
-  gradient_range_v2.py  — gradient-accumulation sweep (main niche result)
-  blockfp_test.py       — block-FP arenas (paradigm question)
-  format_zoo.py         — five-format codec zoo
-  mlp_train.py / mlp_infer_nfe.py / analyze_mlp.py — MLP pipeline
-  hopfield_demo.py / analyze_hopfield.py — Hopfield pipeline
+tb/     one testbench per module + per application; golden-file driven
 
-docs/
-  CAMPAIGN_OVERVIEW.md  — the full arc, every claim cited
-  GRADIENT_NICHE_FINAL.md — gradient-accumulation niche verdict
-  BLOCKFP_VERDICT.md    — block-FP verdict
-  DUAL_CORE_RESULTS.md  — fusion falsified
-  TILE_V2_RESULTS.md    — tile v2 K1 PASS
-  FORMAT_COMPARISON.md  — format war: 5 formats, 3 arenas
-  AREA_COMPARISON.md    — multiplier area synthesis
-  MLP_INFERENCE_DEMO.md — MLP inference end-to-end
-  HOPFIELD_DEMO.md      — Hopfield recall
+sim/    Makefile (all targets) · format_zoo.py (single source of truth per format) ·
+        training, inference, sweep, and cross-check scripts ·
+        HBS_CORE_MASTER_INDEX.log (one line per finding, whole campaign)
+
+docs/   CAMPAIGN_OVERVIEW.md (start here) · two ADRs (one honestly reversed) ·
+        one results doc per experiment, including every negative result
 ```
 
----
-
-## License and Notice
+## License and notice
 
 **License:** [CERN-OHL-S-2.0](LICENSE) — strongly-reciprocal open hardware.
 Anyone may use, study, modify, and build on this work, but any derivative work
-must remain open under the same terms.  This project is released as a contribution,
-not a commercial product.  It is intended to stay in the commons permanently.
+must remain open under the same terms. This project is released as a contribution,
+not a commercial product. It is intended to stay in the commons permanently.
 
 This repository, including all RTL, simulation scripts, and results, constitutes
 a public disclosure record as of 2026-07-05.
