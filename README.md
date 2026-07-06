@@ -40,7 +40,27 @@ baseline, Sky130 HD TT 025C 1v80), operating on 8×8 NFE matrix–vector blocks.
 
 ## 60-Second Quickstart
 
-**Requirements:** Icarus Verilog ≥ 11, Python 3.8+, scikit-learn
+**Requirements:** Icarus Verilog ≥ 11, Python 3.8+, Yosys ≥ 0.9, Sky130 HD liberty file
+
+```bash
+git clone https://github.com/sotiriosc/Horus-Geometry-Fabric.git
+cd Horus-Geometry-Fabric
+
+# Python deps (MLP training, format sweeps, blockfp arenas)
+python3 -m pip install -r requirements.txt
+
+# Sky130 HD liberty for synthesis steps (tile_v2, blockfp).
+# Auto-detected from PDK_ROOT, volare (~/.volare), or common open_pdks paths.
+# Override manually if needed:
+# export SKY130_HD_LIB=/path/to/sky130_fd_sc_hd__tt_025C_1v80.lib
+# Or install via: pip install volare && volare enable sky130
+
+cd sim
+make check-deps    # verify iverilog, python, yosys, liberty
+make quickstart    # runs all six campaigns below (~2 min)
+```
+
+Individual targets (same as `make quickstart`):
 
 ```bash
 cd sim

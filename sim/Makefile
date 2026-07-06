@@ -14,6 +14,22 @@ IVERILOG ?= iverilog
 VVP      ?= vvp
 CC       ?= gcc
 PYTHON   ?= python3
+YOSYS    ?= yosys
+
+# Sky130 HD liberty for Yosys area synthesis (auto-detected; override with SKY130_HD_LIB)
+LIBERTY  ?= $(shell bash find_sky130_liberty.sh 2>/dev/null || true)
+
+define YOSYS_RUN
+	@if [ -z "$(LIBERTY)" ] || [ ! -f "$(LIBERTY)" ]; then \
+		echo ""; \
+		echo "ERROR: Sky130 HD liberty file not found."; \
+		echo "  export SKY130_HD_LIB=/path/to/sky130_fd_sc_hd__tt_025C_1v80.lib"; \
+		echo "  Or install sky130 via open_pdks or volare (see README quickstart)."; \
+		echo ""; \
+		exit 1; \
+	fi
+	sed 's|@LIBERTY@|$(LIBERTY)|g' $(1) | $(YOSYS) -Q /dev/stdin 2>&1 | tee $(2)
+endef
 
 RTL      := ../rtl
 TB       := ../tb
@@ -291,8 +307,6 @@ ssc_chain: sim_ssc_chain
 # Synthesis: Sky130 HD TT 025C 1v80; yosys 0.9+.
 # Timing: not measured (OpenSTA not installed).
 
-YOSYS ?= yosys
-
 sim_pf_check: $(TB)/tb_horus_nfe_pf.v $(RTL)/horus_nfe_pf.v
 	$(IVERILOG) $(IVFLAGS) -o $@ $^
 
@@ -307,7 +321,7 @@ pf_check: sim_pf_check
 synth_baseline:
 	@echo ""
 	@echo "Synthesizing horus_nfe (baseline) against Sky130 HD..."
-	$(YOSYS) -Q synth_nfe_baseline.ys 2>&1 | tee SYNTH_NFE_BASELINE.log
+	$(call YOSYS_RUN,synth_nfe_baseline.ys,SYNTH_NFE_BASELINE.log)
 	@echo ""
 	@echo "Output: SYNTH_NFE_BASELINE.log"
 	@echo ""
@@ -316,7 +330,7 @@ synth_baseline:
 synth_pf:
 	@echo ""
 	@echo "Synthesizing horus_nfe_pf (PATH_FAST) against Sky130 HD..."
-	$(YOSYS) -Q synth_nfe_pf.ys 2>&1 | tee SYNTH_NFE_PF.log
+	$(call YOSYS_RUN,synth_nfe_pf.ys,SYNTH_NFE_PF.log)
 	@echo ""
 	@echo "Output: SYNTH_NFE_PF.log"
 	@echo ""
@@ -336,7 +350,7 @@ pf_comparison: pf_check synth_baseline synth_pf
 synth_top_baseline:
 	@echo ""
 	@echo "Synthesizing horus_top (baseline) against Sky130 HD..."
-	$(YOSYS) -Q synth_top_baseline.ys 2>&1 | tee SYNTH_TOP_BASELINE.log
+	$(call YOSYS_RUN,synth_top_baseline.ys,SYNTH_TOP_BASELINE.log)
 	@echo ""
 	@echo "Output: SYNTH_TOP_BASELINE.log"
 	@echo ""
@@ -345,7 +359,7 @@ synth_top_baseline:
 synth_top_pf:
 	@echo ""
 	@echo "Synthesizing horus_top (PATH_FAST) against Sky130 HD..."
-	$(YOSYS) -Q synth_top_pf.ys 2>&1 | tee SYNTH_TOP_PF.log
+	$(call YOSYS_RUN,synth_top_pf.ys,SYNTH_TOP_PF.log)
 	@echo ""
 	@echo "Output: SYNTH_TOP_PF.log"
 	@echo ""
@@ -415,7 +429,7 @@ pf18_check: sim_pf18_check
 synth_pf18:
 	@echo ""
 	@echo "Synthesizing horus_nfe_pf18 (W=18) against Sky130 HD..."
-	$(YOSYS) -Q synth_nfe_pf18.ys 2>&1 | tee SYNTH_NFE_PF18.log
+	$(call YOSYS_RUN,synth_nfe_pf18.ys,SYNTH_NFE_PF18.log)
 	@echo ""
 	@echo "Output: SYNTH_NFE_PF18.log"
 	@echo ""
@@ -424,7 +438,7 @@ synth_pf18:
 synth_top_pf18:
 	@echo ""
 	@echo "Synthesizing horus_top (PF18) against Sky130 HD..."
-	$(YOSYS) -Q synth_top_pf18.ys 2>&1 | tee SYNTH_TOP_PF18.log
+	$(call YOSYS_RUN,synth_top_pf18.ys,SYNTH_TOP_PF18.log)
 	@echo ""
 	@echo "Output: SYNTH_TOP_PF18.log"
 	@echo ""
@@ -947,7 +961,7 @@ horus_norm_rtl: sim_horus_norm
 
 synth_norm: synth_horus_norm.ys
 	@echo "Synthesising horus_norm (Sky130 HD)..."
-	$(YOSYS) -Q synth_horus_norm.ys 2>&1 | tee SYNTH_HORUS_NORM.log
+	$(call YOSYS_RUN,synth_horus_norm.ys,SYNTH_HORUS_NORM.log)
 	@echo "Log: SYNTH_HORUS_NORM.log"
 	@echo ""
 
@@ -1018,15 +1032,15 @@ mlp_all: mlp_train mlp_norm_v2 mlp_infer mlp_rtl mlp_analyze
 .PHONY: synth_nfe13_mul synth_fp8_e4m3_mul synth_bf16_mul area_comparison
 
 synth_nfe13_mul:
-	$(YOSYS) -Q synth_nfe13_mul.ys 2>&1 | tee SYNTH_NFE13_MUL.log
+	$(call YOSYS_RUN,synth_nfe13_mul.ys,SYNTH_NFE13_MUL.log)
 	@grep -E "Chip area|Number of cells" SYNTH_NFE13_MUL.log | tail -2
 
 synth_fp8_e4m3_mul:
-	$(YOSYS) -Q synth_fp8_e4m3_mul.ys 2>&1 | tee SYNTH_FP8_E4M3_MUL.log
+	$(call YOSYS_RUN,synth_fp8_e4m3_mul.ys,SYNTH_FP8_E4M3_MUL.log)
 	@grep -E "Chip area|Number of cells" SYNTH_FP8_E4M3_MUL.log | tail -2
 
 synth_bf16_mul:
-	$(YOSYS) -Q synth_bf16_mul.ys 2>&1 | tee SYNTH_BF16_MUL.log
+	$(call YOSYS_RUN,synth_bf16_mul.ys,SYNTH_BF16_MUL.log)
 	@grep -E "Chip area|Number of cells" SYNTH_BF16_MUL.log | tail -2
 
 area_comparison: synth_nfe13_mul synth_fp8_e4m3_mul synth_bf16_mul
@@ -1147,19 +1161,19 @@ dual_core_synth:
 	@echo "=== Four-way synthesis (Sky130 HD TT 025C 1v80) ==="
 	@echo ""
 	@echo "--- E4M3 core (fp8_e4m3_mul) ---"
-	$(YOSYS) -Q synth_fp8_e4m3_mul.ys 2>&1 | tee SYNTH_FP8_E4M3_MUL.log | \
+	$(call YOSYS_RUN,synth_fp8_e4m3_mul.ys,SYNTH_FP8_E4M3_MUL.log) | \
 	    grep -E "Chip area|Number of cells"
 	@echo ""
 	@echo "--- E3M6 core (horus_e3m6_core) ---"
-	$(YOSYS) -Q synth_horus_e3m6_core.ys 2>&1 | tee SYNTH_E3M6_CORE.log | \
+	$(call YOSYS_RUN,synth_horus_e3m6_core.ys,SYNTH_E3M6_CORE.log) | \
 	    grep -E "Chip area|Number of cells"
 	@echo ""
 	@echo "--- Dual core (horus_dual_core) ---"
-	$(YOSYS) -Q synth_horus_dual_core.ys 2>&1 | tee SYNTH_DUAL_CORE.log | \
+	$(call YOSYS_RUN,synth_horus_dual_core.ys,SYNTH_DUAL_CORE.log) | \
 	    grep -E "Chip area|Number of cells"
 	@echo ""
 	@echo "--- Dual core inference-only / K3 probe ---"
-	$(YOSYS) -Q synth_dual_core_infer_only.ys 2>&1 | tee SYNTH_DUAL_CORE_K3.log | \
+	$(call YOSYS_RUN,synth_dual_core_infer_only.ys,SYNTH_DUAL_CORE_K3.log) | \
 	    grep -E "Chip area|Number of cells"
 	@echo ""
 	@echo "Full verdict: docs/DUAL_CORE_RESULTS.md"
@@ -1206,7 +1220,7 @@ TILE_E4M3_OPS.hex TILE_E4M3_OUT.hex TILE_E3M6_OPS.hex TILE_E3M6_OUT.hex:
 .PHONY: tile_synth
 tile_synth:
 	@echo "--- Tile synthesis (horus_tile) ---"
-	$(YOSYS) -Q synth_horus_tile.ys 2>&1 | tee SYNTH_HORUS_TILE.log | \
+	$(call YOSYS_RUN,synth_horus_tile.ys,SYNTH_HORUS_TILE.log) | \
 	    grep -E "Chip area|Number of cells"
 	@echo ""
 	@echo "Full verdict: docs/TILE_RESULTS.md"
@@ -1231,7 +1245,7 @@ tile_v2_tb:
 .PHONY: tile_v2_synth
 tile_v2_synth:
 	@echo "--- Tile v2 synthesis (horus_tile_v2) ---"
-	$(YOSYS) -Q synth_horus_tile_v2.ys 2>&1 | tee SYNTH_HORUS_TILE_V2.log | \
+	$(call YOSYS_RUN,synth_horus_tile_v2.ys,SYNTH_HORUS_TILE_V2.log) | \
 	    grep -E "Chip area|Number of cells"
 
 .PHONY: tile_v2
@@ -1258,10 +1272,10 @@ blockfp_python:
 .PHONY: blockfp_synth
 blockfp_synth:
 	@echo "--- 7x7 signed mantissa multiplier (E0M6) ---"
-	$(YOSYS) -Q synth_blockfp_mul7.ys 2>&1 | tee SYNTH_BLOCKFP_MUL7.log | \
+	$(call YOSYS_RUN,synth_blockfp_mul7.ys,SYNTH_BLOCKFP_MUL7.log) | \
 	    grep -E "Chip area|Number of cells"
 	@echo "--- 10x10 signed mantissa multiplier (E0M9) ---"
-	$(YOSYS) -Q synth_blockfp_mul10.ys 2>&1 | tee SYNTH_BLOCKFP_MUL10.log | \
+	$(call YOSYS_RUN,synth_blockfp_mul10.ys,SYNTH_BLOCKFP_MUL10.log) | \
 	    grep -E "Chip area|Number of cells"
 
 .PHONY: blockfp
@@ -1291,5 +1305,31 @@ tile: tile_python tile_tb tile_synth
 	@echo "  K3:        PASS (single norm_v2, both modes)"
 	@echo "  Verdict:   docs/TILE_RESULTS.md"
 	@echo "  Criteria:  docs/TILE_HYPOTHESIS.md"
+	@echo "======================================================"
+	@echo ""
+
+# =============================================================================
+# Quickstart — README 60-second demo (all six campaigns)
+# =============================================================================
+
+.PHONY: check-deps quickstart
+check-deps:
+	@command -v $(IVERILOG) >/dev/null 2>&1 || { echo "ERROR: iverilog not found (need >= 11)"; exit 1; }
+	@command -v $(VVP) >/dev/null 2>&1 || { echo "ERROR: vvp not found"; exit 1; }
+	@command -v $(PYTHON) >/dev/null 2>&1 || { echo "ERROR: python3 not found"; exit 1; }
+	@$(PYTHON) -c "import numpy, sklearn" 2>/dev/null || { echo "ERROR: run from repo root: python3 -m pip install -r requirements.txt"; exit 1; }
+	@command -v $(YOSYS) >/dev/null 2>&1 || { echo "ERROR: yosys not found (needed for tile_v2, blockfp)"; exit 1; }
+	@if [ -z "$(LIBERTY)" ] || [ ! -f "$(LIBERTY)" ]; then \
+		echo "ERROR: Sky130 HD liberty not found."; \
+		echo "  export SKY130_HD_LIB=/path/to/sky130_fd_sc_hd__tt_025C_1v80.lib"; \
+		echo "  Or: pip install volare && volare enable sky130"; \
+		exit 1; \
+	fi
+	@echo "Dependencies OK (liberty: $(LIBERTY))"
+
+quickstart: check-deps mlp_all hopfield_all ssc_chain norm_vs_pf18 tile_v2 blockfp
+	@echo ""
+	@echo "======================================================"
+	@echo "  Quickstart complete — all six campaigns passed."
 	@echo "======================================================"
 	@echo ""
