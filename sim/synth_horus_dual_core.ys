@@ -1,6 +1,0 @@
-read_verilog ../rtl/horus_dual_core.v
-synth -top horus_dual_core
-dfflibmap -liberty @LIBERTY@
-abc -liberty @LIBERTY@
-clean
-stat -liberty @LIBERTY@

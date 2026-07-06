@@ -1,7 +1,0 @@
-# synth_bf16_mul.ys — Sky130 HD synthesis of bf16_mul (combinational multiplier only).
-# Same liberty as synth_nfe_baseline.ys; run from sim/ directory.
-read_verilog ../rtl/bf16_mul.v
-synth -top bf16_mul
-abc -liberty @LIBERTY@
-clean
-stat -liberty @LIBERTY@

@@ -1,7 +1,0 @@
-# synth_nfe13_mul.ys — Sky130 HD synthesis of nfe13_mul (combinational multiplier only).
-# Same liberty as synth_nfe_baseline.ys; run from sim/ directory.
-read_verilog ../rtl/nfe13_mul.v
-synth -top nfe13_mul
-abc -liberty @LIBERTY@
-clean
-stat -liberty @LIBERTY@

@@ -1,7 +1,0 @@
-# synth_fp8_e4m3_mul.ys — Sky130 HD synthesis of fp8_e4m3_mul (combinational multiplier only).
-# Same liberty as synth_nfe_baseline.ys; run from sim/ directory.
-read_verilog ../rtl/fp8_e4m3_mul.v
-synth -top fp8_e4m3_mul
-abc -liberty @LIBERTY@
-clean
-stat -liberty @LIBERTY@

@@ -1,5 +1,0 @@
-read_verilog ../rtl/horus_e3m6_core.v
-synth -top horus_e3m6_core
-abc -liberty @LIBERTY@
-clean
-stat -liberty @LIBERTY@

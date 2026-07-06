@@ -1,6 +1,0 @@
-read_verilog ../rtl/horus_norm_v2.v
-synth -top horus_norm_v2
-dfflibmap -liberty @LIBERTY@
-abc -liberty @LIBERTY@
-clean
-stat -liberty @LIBERTY@

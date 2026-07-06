@@ -1,7 +1,0 @@
-# synth_script.ys — horus_nfe standalone synthesis check
-# Verifies that the Policy Decoder (mode_tag, accum_word, Bias LUT, safe-accum
-# carry-out mux) synthesizes cleanly as a combinational mux layer.
-read_verilog horus_nfe.v
-synth -top horus_nfe
-# Area/timing report — Policy Decoder adds one mux layer before accum_reg.
-stat

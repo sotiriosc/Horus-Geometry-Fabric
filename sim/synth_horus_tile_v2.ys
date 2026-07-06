@@ -1,8 +1,0 @@
-read_verilog ../rtl/horus_tile_v2.v
-read_verilog ../rtl/fp8_e4m3_mul.v
-read_verilog ../rtl/horus_e3m6_core.v
-synth -top horus_tile_v2
-dfflibmap -liberty @LIBERTY@
-abc -liberty @LIBERTY@
-clean
-stat -liberty @LIBERTY@
