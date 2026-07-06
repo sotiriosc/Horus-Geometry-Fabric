@@ -2,7 +2,7 @@
 // ============================================================================
 // Module   : horus_norm
 // File     : rtl/horus_norm.v
-// Author   : Horus-Geometry-Fabric project
+// Author   : Sotirios Chortogiannos
 // Date     : 2026-07-05
 //
 // Purpose  : 8-element block-exponent normalizer.  Re-centers a vector of

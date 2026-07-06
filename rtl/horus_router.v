@@ -2,7 +2,7 @@
 // =============================================================================
 // Module   : horus_router
 // Project  : Horus Native Fractional Engine — 2-D Mesh Interconnect
-// Author   : Horus-NFE Architecture Team
+// Author   : Sotirios Chortogiannos
 // Version  : 1.0
 // =============================================================================
 //

@@ -146,3 +146,5 @@ not a commercial product.  It is intended to stay in the commons permanently.
 
 This repository, including all RTL, simulation scripts, and results, constitutes
 a public disclosure record as of 2026-07-05.
+
+**Author:** Sotirios Chortogiannos
